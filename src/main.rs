@@ -1,3 +1,10 @@
+extern crate pretty_env_logger;
+#[macro_use] extern crate log;
+
 fn main() {
-    println!("Hello, world!");
+    pretty_env_logger::init().unwrap();  // this will panic on error
+
+    info!("Info");
+    warn!("Warn");
+    error!("Error");
 }
