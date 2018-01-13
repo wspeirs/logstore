@@ -7,3 +7,6 @@ authors = ["William Speirs <bill.speirs@gmail.com>"]
 log = "0.4"
 pretty_env_logger = "0.1.1"
 serde_json = "1.0"
+twox-hash = "1.1.0"
+base32 = "0.3.1"
+time = "0.1.39"
