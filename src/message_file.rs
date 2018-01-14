@@ -11,6 +11,7 @@ use self::twox_hash::XxHash;
 use self::base32::Alphabet;
 use self::byteorder::{LE, ReadBytesExt, WriteBytesExt};
 
+use std::str;
 use std::io::Cursor;
 use std::hash::Hasher;
 use std::error::Error;
@@ -55,6 +56,8 @@ pub struct MessageFile {
 /// |-------------------------------------------|
 
 const VERSION: u8 = 0x1;
+const NUM_MSG_OFFSET: u64 = 8;
+const BAD_MSG_COUNT: u32 = 0xFFFFFFFF;
 
 impl MessageFile {
     pub fn new(file_path: &str) -> Result<MessageFile, Box<Error>> {
@@ -69,14 +72,17 @@ impl MessageFile {
         trace!("Attempting to open message file: {}", msg_file_path);
 
         // open the file, and return if an error is encountered
-        let mut msg_file = OpenOptions::new().read(true).append(true).create(true).open(&msg_file_path)?;
+        let mut msg_file = OpenOptions::new().read(true).write(true).create(true).open(&msg_file_path)?;
         let mut num_messages = 0;
+
+        msg_file.seek(SeekFrom::Start(0)); // make sure we're at the start of the file
 
         // if we're opening a new file, write the header info
         if msg_file.metadata()?.len() == 0 {
             msg_file.write(b"LOGSTOR")?; // write the header/magic
-            msg_file.write_u8(VERSION)?;
-            msg_file.write_u32::<LE>(0x00)?;
+            msg_file.write_u8(VERSION)?; // write the version
+            msg_file.write_u32::<LE>(BAD_MSG_COUNT)?; // indicate this file wasn't closed properly
+            info!("Created new MessageFile: {}", msg_file_path);
         } else {
             let mut magic = vec![0; 7];
 
@@ -93,21 +99,55 @@ impl MessageFile {
             }
 
             num_messages = msg_file.read_u32::<LE>()?;
+            msg_file.seek(SeekFrom::End(0))?; // go to the end of the file
+
+            info!("Opened MessageFile: {}", msg_file_path);
         }
 
-        debug!("Created MessageFile with {}", msg_file_path);
-
-        // create our structure and return it wrapped in an Ok()
-        return Ok(MessageFile {
+        let mut ret = MessageFile{
             fd: msg_file,
-            num_messages: num_messages,
-        });
+            num_messages: num_messages
+        };
+
+        if num_messages == BAD_MSG_COUNT {
+            error!("MessageFile not properly closed, attempting to check file");
+
+            return match ret.check() {
+                Ok(count) => { info!("Read {} messages from file successfully", count); Ok(ret) },
+                Err(e) => Err(From::from(e))
+            };
+        } else {
+            debug!("Returning MessageFile");
+            return Ok(ret);
+        }
+   }
+
+    ///
+    /// Checks the file attempting to read each JSON message, and re-establish the count
+    ///
+    pub fn check(&mut self) -> Result<(u32), Box<Error>> {
+        let mut count = 0;
+
+        for m in self.into_iter() {
+            count += 1;
+        }
+
+        self.num_messages = count;
+
+        Ok(count)
     }
 
+    fn canonicalize_json() { }
+
+    ///
+    /// Adds a record to the file
+    ///
     pub fn add(&mut self, message: &str) -> Result<(), Box<Error>> {
-        trace!("Attempting to parse JSON");
+        trace!("Attempting to parse JSON: {}", message);
 
         let v: Value = serde_json::from_str(message)?;
+
+        trace!("Parsed JSON");
 
         // unpack the resulting value, and ensure it's an object
         let mut json: Map<String, Value> = match v {
@@ -135,10 +175,11 @@ impl MessageFile {
             for key in sorted_keys.into_iter() {
                 let value = match json.get(key).unwrap().to_owned() {
                     Value::Object(_) => Err(make_json_error("Nested JSON Objects are not allowed")),
-                    Value::Null => Ok(String::from("")),
+                    Value::Null => Ok(String::from("null")),
                     Value::Bool(b) => Ok(b.to_string()),
                     Value::Number(n) => Ok(n.to_string()),
-                    Value::String(s) => Ok(s),
+                    Value::String(s) => Ok(format!("'{}'", s)),
+                    //TODO: Need to canoncialize this too
                     Value::Array(v) => Ok(v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","))
                 }?;
 
@@ -176,14 +217,20 @@ impl MessageFile {
 
         println!("Final Message: {} {}", final_message.len(), final_message);
 
+        // create a buffer to perform our writes to
+        let mut msg_buff = vec![];
+
         // write out that we're not tombstoning this
-        self.fd.write_u8(0x00)?;
+        msg_buff.write_u8(0x00)?;
 
         // write out the size of the message
-        self.fd.write_u32::<LE>(final_message.len() as u32)?;
+        msg_buff.write_u32::<LE>(final_message.len() as u32)?;
 
-        // write the data to the file
-        self.fd.write(&final_message.as_bytes())?;
+        // write the message
+        msg_buff.write(&final_message.as_bytes())?;
+
+        // write everything in one write call
+        self.fd.write(&msg_buff);
 
         // flush to disk
         self.fd.flush();
@@ -195,34 +242,136 @@ impl MessageFile {
     }
 }
 
+impl Drop for MessageFile {
+    fn drop(&mut self) {
+        self.fd.seek(SeekFrom::Start(NUM_MSG_OFFSET)).unwrap();
+        self.fd.write_u32::<LE>(self.num_messages).unwrap(); // cannot return an error, so best attempt
+        self.fd.flush().unwrap();
+
+        debug!("Wrote out the number of messages: {}", self.num_messages);
+    }
+}
+
+pub struct MessageFileIterator<'a> {
+    msg_file: &'a mut MessageFile,
+    msg_file_size: u64
+}
+
+impl <'a> IntoIterator for &'a mut MessageFile {
+    type Item = Map<String, Value>;
+    type IntoIter = MessageFileIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        // move to the beginning of the messages
+        self.fd.seek(SeekFrom::Start(NUM_MSG_OFFSET + 4)).unwrap();
+
+        // get the size of the file
+        let file_size = self.fd.metadata().unwrap().len();
+
+        debug!("Created MessageFileIterator");
+
+        MessageFileIterator{
+            msg_file: self,
+            msg_file_size: file_size
+        }
+    }
+}
+
+impl <'a> Iterator for MessageFileIterator<'a> {
+    type Item = Map<String, Value>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let cur_pos = self.msg_file.fd.seek(SeekFrom::Current(0)).unwrap();
+
+        if cur_pos == self.msg_file_size {
+            return None;
+        }
+
+        let mut msg_header = vec![0; 5];
+
+        match self.msg_file.fd.read_exact(&mut msg_header) {
+            Err(e) => { warn!("Error reading MessageFile header: {}", e.to_string()); return None; },
+            _ => { }
+        }
+
+        let mut msg_header_cursor = Cursor::new(msg_header);
+
+        let tombstone = match msg_header_cursor.read_u8() {
+            Err(e) => { warn!("Error tombstone: {}", e.to_string()); return None; },
+            Ok(v) => v
+        };
+
+        debug!("Got tombstone: {}", tombstone);
+
+        let msg_size = match msg_header_cursor.read_u32::<LE>() {
+            Err(e) => { warn!("Error reading message size: {}", e.to_string()); return None; },
+            Ok(v) => v
+        };
+
+        let mut message = vec![0; msg_size as usize];
+
+        match self.msg_file.fd.read_exact(&mut message) {
+            Err(e) => { warn!("Error reading message ({}): {}", msg_size, e.to_string()); return None; },
+            _ => { }
+        }
+
+        debug!("Read message: {}", str::from_utf8(&message).unwrap());
+
+        let v: Value = match serde_json::from_str(str::from_utf8(&message).unwrap()) {
+            Err(e) => { warn!("Parsing message into JSON: {}", e.to_string()); return None; },
+            Ok(x) => x
+        };
+
+        match v {
+            Value::Object(x) => return Some(x),
+            _ => return None
+        };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ::message_file::MessageFile;
+    use simple_logger;
+
 
     #[test]
     fn new_file_no_slash() {
-        let ret = MessageFile::new("/tmp").unwrap();
+        simple_logger::init().unwrap();  // this will panic on error
+        MessageFile::new("/tmp").unwrap();
     }
 
     #[test]
     fn new_file_with_slash() {
-        let ret = MessageFile::new("/tmp/").unwrap();
+        simple_logger::init().unwrap();  // this will panic on error
+        MessageFile::new("/tmp/").unwrap();
+    }
+
+    #[test]
+    fn check_file() {
+        simple_logger::init().unwrap();  // this will panic on error
+        let mut msg_file = MessageFile::new("/tmp/").unwrap();
+
+        assert!(msg_file.num_messages == msg_file.check().unwrap());
     }
 
     #[test]
     fn add_valid_msg() {
-        let mut ret = MessageFile::new("/tmp").unwrap();
+        simple_logger::init().unwrap();  // this will panic on error
+        let mut msg_file = MessageFile::new("/tmp").unwrap();
         let msg = r#"{
-            "c": Null,
-            "b": 23,
+            "d": 23,
+            "c": null,
+            "b": true,
             "a": "something"
         }"#;
 
-        assert!(ret.add(msg).is_ok());
+        assert!(msg_file.add(msg).is_ok());
     }
 
     #[test]
     fn add_nested_json() {
+        simple_logger::init().unwrap();  // this will panic on error
         let mut msg_file = MessageFile::new("/tmp").unwrap();
         let msg = r#"{
             "c": "test",
@@ -236,6 +385,7 @@ mod tests {
 
     #[test]
     fn add_illegal_field() {
+        simple_logger::init().unwrap();  // this will panic on error
         let mut msg_file = MessageFile::new("/tmp").unwrap();
         let msg = r#"{
             "__c": "test",
