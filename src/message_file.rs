@@ -9,7 +9,7 @@ use serde_json::Error as JsonError;
 use serde_json::error::ErrorCode;
 use self::twox_hash::XxHash;
 use self::base32::Alphabet;
-use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use self::byteorder::{LE, ReadBytesExt, WriteBytesExt};
 
 use std::io::Cursor;
 use std::hash::Hasher;
@@ -21,28 +21,6 @@ use std::io::Error as IOError;
 // this is kinda clunky :-\
 fn make_json_error(msg: &str) -> JsonError {
     return JsonError::syntax(ErrorCode::Message(String::from(msg).into_boxed_str()), 0, 0);
-}
-
-fn u64_bytes(x: u64) -> [u8; 8] {
-    return [
-        ((x >> 56) & 0xff) as u8,
-        ((x >> 48) & 0xff) as u8,
-        ((x >> 40) & 0xff) as u8,
-        ((x >> 32) & 0xff) as u8,
-        ((x >> 24) & 0xff) as u8,
-        ((x >> 16) & 0xff) as u8,
-        ((x >> 8) & 0xff) as u8,
-        (x & 0xff) as u8
-    ];
-}
-
-fn u32_bytes(x: u32) -> [u8; 4] {
-    return [
-        ((x >> 24) & 0xff) as u8,
-        ((x >> 16) & 0xff) as u8,
-        ((x >> 8) & 0xff) as u8,
-        (x & 0xff) as u8
-    ];
 }
 
 fn get_ts() -> (i64) {
@@ -98,7 +76,7 @@ impl MessageFile {
         if msg_file.metadata()?.len() == 0 {
             msg_file.write(b"LOGSTOR")?; // write the header/magic
             msg_file.write_u8(VERSION)?;
-            msg_file.write_u32::<LittleEndian>(0x00)?;
+            msg_file.write_u32::<LE>(0x00)?;
         } else {
             let mut magic = vec![0; 7];
 
@@ -114,7 +92,7 @@ impl MessageFile {
                 return Err(From::from("Wrong version number"));
             }
 
-            num_messages = msg_file.read_u32::<LittleEndian>()?;
+            num_messages = msg_file.read_u32::<LE>()?;
         }
 
         debug!("Created MessageFile with {}", msg_file_path);
@@ -126,7 +104,7 @@ impl MessageFile {
         });
     }
 
-    pub fn add_message(&mut self, message: &str) -> Result<(), Box<Error>> {
+    pub fn add(&mut self, message: &str) -> Result<(), Box<Error>> {
         trace!("Attempting to parse JSON");
 
         let v: Value = serde_json::from_str(message)?;
@@ -180,7 +158,11 @@ impl MessageFile {
 
         hash.write(canoncial_json.as_bytes());
 
-        let id = base32::encode(Alphabet::RFC4648 { padding: false }, &u64_bytes(hash.finish()));
+        let mut buff = vec![];
+
+        buff.write_u64::<LE>(hash.finish());
+
+        let id = base32::encode(Alphabet::RFC4648 { padding: false }, &buff);
 
         println!("ID: {}", id);
 
@@ -195,10 +177,10 @@ impl MessageFile {
         println!("Final Message: {} {}", final_message.len(), final_message);
 
         // write out that we're not tombstoning this
-        self.fd.write(&[0x00 as u8])?;
+        self.fd.write_u8(0x00)?;
 
         // write out the size of the message
-        self.fd.write(&u32_bytes(final_message.len() as u32))?;
+        self.fd.write_u32::<LE>(final_message.len() as u32)?;
 
         // write the data to the file
         self.fd.write(&final_message.as_bytes())?;
@@ -231,6 +213,6 @@ mod tests {
     fn write_message() {
         let mut ret = MessageFile::new("/tmp").unwrap();
 
-        ret.add_message("{\"b\": 1, \"a\": \"something\"}");
+        ret.add("{\"b\": 1, \"a\": \"something\"}");
     }
 }
