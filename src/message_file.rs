@@ -210,9 +210,40 @@ mod tests {
     }
 
     #[test]
-    fn write_message() {
+    fn add_valid_msg() {
         let mut ret = MessageFile::new("/tmp").unwrap();
+        let msg = r#"{
+            "c": Null,
+            "b": 23,
+            "a": "something"
+        }"#;
 
-        ret.add("{\"b\": 1, \"a\": \"something\"}");
+        assert!(ret.add(msg).is_ok());
+    }
+
+    #[test]
+    fn add_nested_json() {
+        let mut msg_file = MessageFile::new("/tmp").unwrap();
+        let msg = r#"{
+            "c": "test",
+            "b": 23,
+            "a": { "x": "z" }
+        }"#;
+
+        // this should be an error
+        assert!(msg_file.add(msg).is_err());
+    }
+
+    #[test]
+    fn add_illegal_field() {
+        let mut msg_file = MessageFile::new("/tmp").unwrap();
+        let msg = r#"{
+            "__c": "test",
+            "b": 23,
+            "a": true
+        }"#;
+
+        // this should be an error
+        assert!(msg_file.add(msg).is_err());
     }
 }
