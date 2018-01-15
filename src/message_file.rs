@@ -16,8 +16,7 @@ use std::io::Cursor;
 use std::hash::Hasher;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write, ErrorKind, Seek, SeekFrom};
-use std::io::Error as IOError;
+use std::io::{Read, Write, Seek, SeekFrom};
 
 // this is kinda clunky :-\
 fn make_json_error(msg: &str) -> JsonError {
@@ -60,6 +59,7 @@ const NUM_MSG_OFFSET: u64 = 8;
 const BAD_MSG_COUNT: u32 = 0xFFFFFFFF;
 
 impl MessageFile {
+    /// Creates a new MessageFile and initializes the header
     pub fn new(file_path: &str) -> Result<MessageFile, Box<Error>> {
         let mut msg_file_path = String::from(file_path);
 
@@ -75,7 +75,7 @@ impl MessageFile {
         let mut msg_file = OpenOptions::new().read(true).write(true).create(true).open(&msg_file_path)?;
         let mut num_messages = 0;
 
-        msg_file.seek(SeekFrom::Start(0)); // make sure we're at the start of the file
+        msg_file.seek(SeekFrom::Start(0))?; // make sure we're at the start of the file
 
         // if we're opening a new file, write the header info
         if msg_file.metadata()?.len() == 0 {
@@ -128,7 +128,18 @@ impl MessageFile {
     pub fn check(&mut self) -> Result<(u32), Box<Error>> {
         let mut count = 0;
 
-        for m in self.into_iter() {
+        for msg_buff in self.into_iter() {
+            let msg = str::from_utf8(&msg_buff[5..]).unwrap();
+
+            debug!("Read message: {}", msg);
+
+            let res: Result<Value, JsonError> = serde_json::from_str(msg);
+
+            if let Err(e) = res {
+                warn!("Error parsing message into JSON: {}", e.to_string());
+                return Err(From::from(e));
+            }
+
             count += 1;
         }
 
@@ -142,7 +153,7 @@ impl MessageFile {
     ///
     /// Adds a record to the file
     ///
-    pub fn add(&mut self, message: &str) -> Result<(), Box<Error>> {
+    pub fn add(&mut self, message: &str) -> Result<String, Box<Error>> {
         trace!("Attempting to parse JSON: {}", message);
 
         let v: Value = serde_json::from_str(message)?;
@@ -164,6 +175,9 @@ impl MessageFile {
             if json.keys().any(|k| k.starts_with("__")) {
                 return Err(From::from("Illegal fields in message; fields cannot start with __: ".to_owned() + message));
             }
+
+            // add the TS to the message
+            json.insert(String::from("__ts"), json!(get_ts()));
 
             // get a sorted vector of keys to form a canonical representation
             let mut sorted_keys = json.keys().collect::<Vec<&String>>();
@@ -201,17 +215,14 @@ impl MessageFile {
 
         let mut buff = vec![];
 
-        buff.write_u64::<LE>(hash.finish());
+        buff.write_u64::<LE>(hash.finish())?;
 
         let id = base32::encode(Alphabet::RFC4648 { padding: false }, &buff);
 
         println!("ID: {}", id);
 
         // add the ID to the message
-        json.insert(String::from("__id"), Value::String(id));
-
-        // add the TS to the message
-        json.insert(String::from("__ts"), json!(get_ts()));
+        json.insert(String::from("__id"), Value::String(id.to_owned()));
 
         let final_message = serde_json::to_string(&json)?;
 
@@ -230,15 +241,70 @@ impl MessageFile {
         msg_buff.write(&final_message.as_bytes())?;
 
         // write everything in one write call
-        self.fd.write(&msg_buff);
+        self.fd.write(&msg_buff)?;
 
         // flush to disk
-        self.fd.flush();
+        self.fd.flush()?;
 
         // update the number of messages written
         self.num_messages += 1;
 
-        return Ok(());
+        return Ok(id.to_owned());
+    }
+
+    pub fn tombstone(&mut self, id: &str) -> Result<bool, Box<Error>> {
+        let mut prev_pos = NUM_MSG_OFFSET + 4; // start of the messages
+        let mut found = false;
+
+        for mut block in self.into_iter() {
+            let mut cur = Cursor::new(block);
+            cur.seek(SeekFrom::Start(1))?; // move past the tombstone
+
+            let msg_size = cur.read_u32::<LE>().unwrap() as u64;
+            block = cur.into_inner();
+
+            let message = str::from_utf8(&block[5..])?;
+
+            let json = match serde_json::from_str(&message) {
+                Err(e) => {
+                    warn!("Error parsing message into JSON: {}", e.to_string());
+                    debug!("MSG: {}", message);
+                    return Err(From::from(e));
+                },
+                Ok(x) => match x {
+                    Value::Object(o) => o,
+                    _ => {
+                        warn!("Found non-object JSON: {}", message);
+                        return Err(From::from("Found non-object JSON"));
+                    }
+                }
+            };
+
+            if json.get("__id").unwrap() == id {
+                debug!("Found id to tombstone");
+                found = true;
+                break;
+            }
+
+            prev_pos += 5 + msg_size;
+        }
+
+        if found {
+            // go back to the start of the other message
+            self.fd.seek(SeekFrom::Start(prev_pos))?;
+
+            debug!("Tombstoning at {}", prev_pos);
+
+            // write out that we want to tombstone it
+            self.fd.write_u8(0x01)?;
+
+            // go to the end of the file
+            self.fd.seek(SeekFrom::End(0))?;
+
+            return Ok(true);
+        } else {
+            return Ok(false); // we weren't able to find it
+        }
     }
 }
 
@@ -258,7 +324,7 @@ pub struct MessageFileIterator<'a> {
 }
 
 impl <'a> IntoIterator for &'a mut MessageFile {
-    type Item = Map<String, Value>;
+    type Item = Vec<u8>;
     type IntoIter = MessageFileIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -278,7 +344,7 @@ impl <'a> IntoIterator for &'a mut MessageFile {
 }
 
 impl <'a> Iterator for MessageFileIterator<'a> {
-    type Item = Map<String, Value>;
+    type Item = Vec<u8>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let cur_pos = self.msg_file.fd.seek(SeekFrom::Current(0)).unwrap();
@@ -287,14 +353,15 @@ impl <'a> Iterator for MessageFileIterator<'a> {
             return None;
         }
 
-        let mut msg_header = vec![0; 5];
+        let mut msg_buff = Vec::<u8>::with_capacity(4096); // make a large buffer
+        msg_buff.resize(5, 0x00); // TOODO: use resize_default()
 
-        match self.msg_file.fd.read_exact(&mut msg_header) {
+        match self.msg_file.fd.read_exact(&mut msg_buff[0..5]) {
             Err(e) => { warn!("Error reading MessageFile header: {}", e.to_string()); return None; },
             _ => { }
         }
 
-        let mut msg_header_cursor = Cursor::new(msg_header);
+        let mut msg_header_cursor = Cursor::new(msg_buff);
 
         let tombstone = match msg_header_cursor.read_u8() {
             Err(e) => { warn!("Error tombstone: {}", e.to_string()); return None; },
@@ -308,24 +375,18 @@ impl <'a> Iterator for MessageFileIterator<'a> {
             Ok(v) => v
         };
 
-        let mut message = vec![0; msg_size as usize];
+        // make sure we have enough space
+        msg_buff = msg_header_cursor.into_inner();
+        msg_buff.resize(5 + msg_size as usize, 0x00); // TODO: use resize_default()
 
-        match self.msg_file.fd.read_exact(&mut message) {
+        debug!("Reading message of size {}", msg_size);
+
+        match self.msg_file.fd.read_exact(&mut msg_buff[5..]) {
             Err(e) => { warn!("Error reading message ({}): {}", msg_size, e.to_string()); return None; },
             _ => { }
         }
 
-        debug!("Read message: {}", str::from_utf8(&message).unwrap());
-
-        let v: Value = match serde_json::from_str(str::from_utf8(&message).unwrap()) {
-            Err(e) => { warn!("Parsing message into JSON: {}", e.to_string()); return None; },
-            Ok(x) => x
-        };
-
-        match v {
-            Value::Object(x) => return Some(x),
-            _ => return None
-        };
+        Some(msg_buff)
     }
 }
 
@@ -366,7 +427,9 @@ mod tests {
             "a": "something"
         }"#;
 
-        assert!(msg_file.add(msg).is_ok());
+        let id = msg_file.add(msg).unwrap();
+
+        println!("ID: {}", id);
     }
 
     #[test]
@@ -395,5 +458,17 @@ mod tests {
 
         // this should be an error
         assert!(msg_file.add(msg).is_err());
+    }
+
+    #[test]
+    fn tombstone_message() {
+        simple_logger::init().unwrap();  // this will panic on error
+        let mut msg_file = MessageFile::new("/tmp").unwrap();
+        let msg = r#"{
+            "z": "test"
+        }"#;
+        let id = msg_file.add(msg).unwrap();
+
+        assert!(msg_file.tombstone(id.as_str()).unwrap());
     }
 }
