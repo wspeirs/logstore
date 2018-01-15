@@ -8,7 +8,7 @@ use serde_json::{Value, Map};
 use serde_json::Error as JsonError;
 use serde_json::error::ErrorCode;
 use self::twox_hash::XxHash;
-use self::base32::Alphabet;
+use self::base32::Alphabet; // TODO: Switch this to base64
 use self::byteorder::{LE, ReadBytesExt, WriteBytesExt};
 
 use std::str;
@@ -35,7 +35,6 @@ fn get_ts() -> (i64) {
 pub struct MessageFile {
     fd: File, // the actual message file
     num_messages: u32, // the number of messages in the file
-    //TODO: Need to add a destructor as this value is never saved
 }
 
 /// This struct represents the on-disk format of the MessageFile
@@ -147,8 +146,6 @@ impl MessageFile {
 
         Ok(count)
     }
-
-    fn canonicalize_json() { }
 
     ///
     /// Adds a record to the file
