@@ -2,10 +2,9 @@ extern crate byteorder;
 
 use self::byteorder::{LE, ReadBytesExt, WriteBytesExt};
 
-use std::io::{Error as IOError, ErrorKind};
 use std::error::Error;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write, Seek, SeekFrom};
+use std::io::{Read, Write, Seek, SeekFrom, ErrorKind, Error as IOError};
 
 
 /// This struct represents the on-disk format of the RecordFile
@@ -21,13 +20,13 @@ use std::io::{Read, Write, Seek, SeekFrom};
 /// | ...                       |
 /// |---------------------------|
 
-const BAD_COUNT: u32 = 0xFFFFFFFF;
+pub const BAD_COUNT: u32 = 0xFFFFFFFF;
 
 /// Record file
 pub struct RecordFile {
-    fd: File, // the actual file
-    num_records: u32, // the number of records in the file
-    header_len: usize // the length of the header
+    pub fd: File, // the actual file
+    pub num_records: u32, // the number of records in the file
+    pub header_len: usize // the length of the header
 }
 
 impl RecordFile {

@@ -10,7 +10,7 @@ use self::base32::Alphabet;
 use base64::{Config, CharacterSet, LineWrap};
 
 // my files/modules
-//mod message_file;
+mod log_file;
 //mod index_file;
 //mod log_value;
 mod record_file;
