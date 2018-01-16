@@ -272,7 +272,7 @@ impl <'a> Iterator for LogFileIterator<'a> {
 
 #[cfg(test)]
 mod tests {
-    use ::message_file::LogFile;
+    use ::log_file::LogFile;
     use simple_logger;
 
 
@@ -291,9 +291,10 @@ mod tests {
     #[test]
     fn check_file() {
         simple_logger::init().unwrap();  // this will panic on error
-        let mut msg_file = LogFile::new("/tmp/").unwrap();
+        let mut log_file = LogFile::new("/tmp/").unwrap();
+        let num_logs = log_file.rec_file.num_records;
 
-        assert!(msg_file.num_messages == msg_file.check().unwrap());
+        assert_eq!(num_logs, log_file.check().unwrap());
     }
 
     #[test]
@@ -340,15 +341,15 @@ mod tests {
         assert!(msg_file.add(msg).is_err());
     }
 
-    #[test]
-    fn tombstone_message() {
-        simple_logger::init().unwrap();  // this will panic on error
-        let mut msg_file = LogFile::new("/tmp").unwrap();
-        let msg = r#"{
-            "z": "test"
-        }"#;
-        let id = msg_file.add(msg).unwrap();
-
-        assert!(msg_file.tombstone(id.as_str()).unwrap());
-    }
+//    #[test]
+//    fn tombstone_message() {
+//        simple_logger::init().unwrap();  // this will panic on error
+//        let mut msg_file = LogFile::new("/tmp").unwrap();
+//        let msg = r#"{
+//            "z": "test"
+//        }"#;
+//        let id = msg_file.add(msg).unwrap();
+//
+//        assert!(msg_file.tombstone(id.as_str()).unwrap());
+//    }
 }
