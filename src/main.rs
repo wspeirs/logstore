@@ -10,9 +10,11 @@ use self::base32::Alphabet;
 use base64::{Config, CharacterSet, LineWrap};
 
 // my files/modules
-mod message_file;
-mod index_file;
-mod log_value;
+//mod message_file;
+//mod index_file;
+//mod log_value;
+mod record_file;
+
 
 fn main() {
     simple_logger::init().unwrap();  // this will panic on error

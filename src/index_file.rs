@@ -31,6 +31,7 @@ pub struct IndexFile {
 
 const FILE_HEADER: &[u8; 12] = b"LOGINDEX\x01\x00\x00\x00";
 const BAD_COUNT: u32 = 0xFFFFFFFF; // TODO: Share w/MessageFile
+const RECORD_START: u64 = 16;
 
 impl IndexFile  {
     pub fn new(dir_path: &str, index_name: &str) -> Result<IndexFile, Box<Error>> {
@@ -79,12 +80,42 @@ impl IndexFile  {
         })
     }
 
-    pub fn add(&mut self, value: LogValue, offset: u64) -> Result<(), Box<Error>> {
+    pub fn add(&mut self, value: LogValue, offset: u64) {
+        // simply add to the in-memory index
+        // it's flushed to disk on close
         self.index.insert(value, offset);
+    }
 
-        Ok( () )
+    /// Flushes the in-memory index to disk
+    fn flush(&mut self) {
+
     }
 }
+
+//struct IndexFileIterator<'a> {
+//    index_file: &'a mut IndexFile
+//}
+//
+//impl <'a> IntoIterator for &'a mut IndexFile {
+//    type Item = Vec<u8>;
+//    type IntoIter = IndexFileIterator<'a>;
+//
+//    fn into_iter(self) -> Self::IntoIter {
+//        // move to the beginning of the messages
+//        self.fd.seek(SeekFrom::Start(RECORD_START)).unwrap();
+//
+//        // get the size of the file
+//        let file_size = self.fd.metadata().unwrap().len();
+//
+//        debug!("Created IndexFileIterator");
+//
+//        IndexFileIterator{
+//            index_file: self
+//        }
+//    }
+//}
+
+
 
 #[cfg(test)]
 mod tests {
