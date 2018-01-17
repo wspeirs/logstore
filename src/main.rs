@@ -6,13 +6,12 @@ extern crate base32;
 extern crate base64;
 
 use self::base32::Alphabet;
-//use base64::{encode, decode};
 use base64::{Config, CharacterSet, LineWrap};
 
 // my files/modules
 mod log_file;
-//mod index_file;
-//mod log_value;
+mod index_file;
+mod log_value;
 mod record_file;
 
 

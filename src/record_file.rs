@@ -13,6 +13,8 @@ use std::io::{Read, Write, Seek, SeekFrom, ErrorKind, Error as IOError};
 /// |---------------------------|
 /// | num records, 4-bytes      |
 /// |---------------------------|
+/// | end of file, 8-bytes      |
+/// |---------------------------|
 /// | record size, 4-bytes      |
 /// |---------------------------|
 /// | record ...                |
@@ -24,9 +26,10 @@ pub const BAD_COUNT: u32 = 0xFFFFFFFF;
 
 /// Record file
 pub struct RecordFile {
-    pub fd: File, // the actual file
-    pub num_records: u32, // the number of records in the file
-    pub header_len: usize // the length of the header
+    pub fd: File,          // the actual file
+    pub record_count: u32,  // the number of records in the file
+    pub header_len: usize, // the length of the header
+    pub end_of_file: u64   // the end of the file (size) as controlled by RecordFile
 }
 
 impl RecordFile {
@@ -34,14 +37,16 @@ impl RecordFile {
         debug!("Attempting to open file: {}", file_path);
 
         let mut fd = OpenOptions::new().read(true).write(true).create(true).open(&file_path)?;
-        let mut num_records = 0;
+        let mut record_count = 0;
+        let mut end_of_file = (header.len() + 4 + 8) as u64;
 
         fd.seek(SeekFrom::Start(0))?;
 
         // check to see if we're opening a new/blank file or not
         if fd.metadata()?.len() == 0 {
             fd.write(header)?;
-            fd.write_u32::<LE>(BAD_COUNT)?;
+            fd.write_u32::<LE>(BAD_COUNT)?; // record count
+            fd.write_u64::<LE>(end_of_file)?;
             debug!("Created new RecordFile: {}", file_path);
         } else {
             let mut header_buff = vec![0; header.len()];
@@ -52,19 +57,27 @@ impl RecordFile {
                 return Err(Box::new(IOError::new(ErrorKind::InvalidData, format!("Invalid file header for: {}", file_path))));
             }
 
-            num_records = fd.read_u32::<LE>()?;
-            fd.seek(SeekFrom::End(0))?; // go to the end of the file
+            record_count = fd.read_u32::<LE>()?;
+
+            if record_count == BAD_COUNT {
+                //TODO: Add a check in here
+                panic!("Opened a bad record file");
+            }
+
+            end_of_file = fd.read_u64::<LE>()?;
+
+            fd.seek(SeekFrom::Start(end_of_file))?; // go to the end of the file
 
             debug!("Opened RecordFile: {}", file_path);
         }
 
-        Ok(RecordFile { fd, num_records, header_len: header.len() })
+        Ok(RecordFile { fd, record_count, header_len: header.len(), end_of_file })
     }
 
     /// Appends a record to the end of the file
     /// Returns the location where the record was written
     pub fn append(&mut self, record: &[u8]) -> Result<u64, Box<Error>> {
-        let rec_loc = self.fd.seek(SeekFrom::Current(0))?;
+        let rec_loc = self.fd.seek(SeekFrom::Start(self.end_of_file))?;
         let rec_size = record.len();
 
         self.fd.write_u32::<LE>(rec_size as u32)?;
@@ -73,7 +86,8 @@ impl RecordFile {
 
         debug!("Wrote record of size: {}", rec_size);
 
-        self.num_records += 1;
+        self.record_count += 1;
+        self.end_of_file += (4 + rec_size) as u64;
 
         Ok(rec_loc)
     }
@@ -94,10 +108,10 @@ impl RecordFile {
 impl Drop for RecordFile {
     fn drop(&mut self) {
         self.fd.seek(SeekFrom::Start(self.header_len as u64)).unwrap();
-        self.fd.write_u32::<LE>(self.num_records).unwrap(); // cannot return an error, so best attempt
+        self.fd.write_u32::<LE>(self.record_count).unwrap(); // cannot return an error, so best attempt
         self.fd.flush().unwrap();
 
-        debug!("Closed RecordFile with {} messages", self.num_records);
+        debug!("Closed RecordFile with {} messages", self.record_count);
     }
 }
 
@@ -112,7 +126,7 @@ impl <'a> IntoIterator for &'a mut RecordFile {
 
     fn into_iter(self) -> Self::IntoIter {
         // move to the beginning of the messages
-        self.fd.seek(SeekFrom::Start(self.header_len as u64 + 4)).unwrap();
+        self.fd.seek(SeekFrom::Start(self.header_len as u64 + 4 + 8)).unwrap();
 
         debug!("Created RecordFileIterator");
 
@@ -125,7 +139,7 @@ impl <'a> Iterator for RecordFileIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         // invariant when we've reached the end of the records
-        if self.cur_record >= self.record_file.num_records {
+        if self.cur_record >= self.record_file.record_count {
             return None;
         }
 
@@ -154,34 +168,41 @@ mod tests {
     use ::record_file::RecordFile;
     use simple_logger;
     use std::fs::remove_file;
+    use std::io::{Read, Write, Seek, SeekFrom, ErrorKind, Error as IOError};
 
     #[test]
     fn new() {
         simple_logger::init().unwrap();  // this will panic on error
-        remove_file("/tmp/test.data").unwrap();
-        RecordFile::new("/tmp/test.data", "ABCD".as_bytes()).unwrap();
+        remove_file("/tmp/test.data");
+        let mut rec_file = RecordFile::new("/tmp/test.data", "ABCD".as_bytes()).unwrap();
+
+        rec_file.fd.seek(SeekFrom::Start(rec_file.end_of_file));
+        rec_file.fd.write("TEST".as_bytes());
     }
 
     #[test]
     fn append() {
         simple_logger::init().unwrap();  // this will panic on error
-        remove_file("/tmp/test.data").unwrap();
+        remove_file("/tmp/test.data");
         let mut rec_file = RecordFile::new("/tmp/test.data", "ABCD".as_bytes()).unwrap();
+
+        // put this here to see if it messes with stuff
+        rec_file.fd.seek(SeekFrom::Start(rec_file.end_of_file));
+        rec_file.fd.write("TEST".as_bytes());
+
         let rec = "THE_RECORD".as_bytes();
 
         let loc = rec_file.append(rec).unwrap();
-
-        assert_eq!(loc, 8);
+        assert_eq!(loc, rec_file.end_of_file - (4 + rec.len()) as u64);
 
         let loc2 = rec_file.append(rec).unwrap();
-
-        assert_eq!(loc2, loc+4+rec.len() as u64);
+        assert_eq!(loc2, rec_file.end_of_file - (4 + rec.len()) as u64);
     }
 
     #[test]
     fn read_at() {
         simple_logger::init().unwrap();  // this will panic on error
-        remove_file("/tmp/test.data").unwrap();
+        remove_file("/tmp/test.data");
         let mut rec_file = RecordFile::new("/tmp/test.data", "ABCD".as_bytes()).unwrap();
         let rec = "THE_RECORD".as_bytes();
 
@@ -191,5 +212,28 @@ mod tests {
         let rec_read = rec_file.read_at(loc).unwrap();
 
         assert_eq!(rec, rec_read.as_slice());
+    }
+
+    #[test]
+    fn iterate() {
+        simple_logger::init().unwrap();  // this will panic on error
+        remove_file("/tmp/test.data");
+        let mut rec_file = RecordFile::new("/tmp/test.data", "ABCD".as_bytes()).unwrap();
+
+        // put this here to see if it messes with stuff
+        rec_file.fd.seek(SeekFrom::Start(rec_file.end_of_file));
+        rec_file.fd.write("TEST".as_bytes());
+
+        let rec = "THE_RECORD".as_bytes();
+
+        let loc = rec_file.append(rec).unwrap();
+        assert_eq!(loc, rec_file.end_of_file - (4 + rec.len()) as u64);
+
+        let loc2 = rec_file.append(rec).unwrap();
+        assert_eq!(loc2, rec_file.end_of_file - (4 + rec.len()) as u64);
+
+        for rec in rec_file.into_iter() {
+            assert_eq!("THE_RECORD".as_bytes(), rec.as_slice());
+        }
     }
 }

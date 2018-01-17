@@ -41,16 +41,16 @@ impl LogFile {
     pub fn new(dir_path: &str) -> Result<LogFile, Box<Error>> {
         let mut file_path = String::from(dir_path);
 
-        if file_path.ends_with("/") {
-            file_path.push_str("logs.data");
-        } else {
-            file_path.push_str("/logs.data");
+        if !file_path.ends_with("/") {
+            file_path.push_str("/");
         }
+
+        file_path.push_str("logs.data");
 
         let rec_file = RecordFile::new(&file_path, FILE_HEADER)?;
         let mut ret = LogFile{ rec_file };
 
-        if ret.rec_file.num_records == BAD_COUNT {
+        if ret.rec_file.record_count == BAD_COUNT {
             error!("{} not properly closed, attempting to check file", file_path);
 
             return match ret.check() {
@@ -87,7 +87,7 @@ impl LogFile {
         }
 
         // update the cound in the underlying RecordFile
-        self.rec_file.num_records = count;
+        self.rec_file.record_count = count;
 
         Ok(count)
     }
@@ -292,7 +292,7 @@ mod tests {
     fn check_file() {
         simple_logger::init().unwrap();  // this will panic on error
         let mut log_file = LogFile::new("/tmp/").unwrap();
-        let num_logs = log_file.rec_file.num_records;
+        let num_logs = log_file.rec_file.record_count;
 
         assert_eq!(num_logs, log_file.check().unwrap());
     }
