@@ -68,7 +68,7 @@ impl LogFile {
     pub fn check(&mut self) -> Result<u32, Box<Error>> {
         let mut count = 0;
 
-        for rec in self.rec_file.into_iter() {
+        for rec in (&mut self.rec_file).into_iter() {
             match serde_json::from_slice(rec.as_slice()) {
                 Err(e) => {
                     error!("Error checking file: {}", e.to_string());
@@ -87,7 +87,7 @@ impl LogFile {
         }
 
         // update the cound in the underlying RecordFile
-        self.rec_file.record_count = count;
+//        self.rec_file.record_count = count;
 
         Ok(count)
     }
@@ -230,20 +230,20 @@ impl LogFile {
 //    }
 }
 
-pub struct LogFileIterator<'a> {
-    rec_iter: RecordFileIterator<'a>
+pub struct LogFileIterator {
+    rec_iter: RecordFileIterator
 }
 
-impl <'a> IntoIterator for &'a mut LogFile {
+impl IntoIterator for LogFile {
     type Item = Map<String, Value>;
-    type IntoIter = LogFileIterator<'a>;
+    type IntoIter = LogFileIterator;
 
     fn into_iter(self) -> Self::IntoIter {
         LogFileIterator{ rec_iter: self.rec_file.into_iter() }
     }
 }
 
-impl <'a> Iterator for LogFileIterator<'a> {
+impl Iterator for LogFileIterator {
     type Item = Map<String, Value>;
 
     fn next(&mut self) -> Option<Self::Item> {

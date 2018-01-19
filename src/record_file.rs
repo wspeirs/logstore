@@ -167,6 +167,57 @@ impl Iterator for RecordFileIterator {
     }
 }
 
+pub struct MutRecordFileIterator<'a> {
+    record_file: RefCell<&'a mut RecordFile>,
+    cur_record: u32
+}
+
+impl <'a> IntoIterator for &'a mut RecordFile {
+    type Item = Vec<u8>;
+    type IntoIter = MutRecordFileIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        debug!("Created RecordFileIterator");
+
+        MutRecordFileIterator{ record_file: RefCell::new(self), cur_record: 0 }
+    }
+}
+
+impl <'a> Iterator for MutRecordFileIterator<'a> {
+    type Item = Vec<u8>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // move to the start of the records if this is the first time through
+        if self.cur_record == 0 {
+            let offset = self.record_file.borrow().header_len as u64 + 4 + 8;
+            self.record_file.get_mut().fd.seek(SeekFrom::Start(offset)).unwrap();
+        }
+
+        // invariant when we've reached the end of the records
+        if self.cur_record >= self.record_file.borrow().record_count {
+            return None;
+        }
+
+        let rec_size = match self.record_file.get_mut().fd.read_u32::<LE>() {
+            Err(e) => { error!("Error reading record file: {}", e.to_string()); return None; },
+            Ok(s) => s
+        };
+
+        let mut msg_buff = vec![0; rec_size as usize];
+
+        debug!("Reading record of size {}", rec_size);
+
+        if let Err(e) = self.record_file.get_mut().fd.read_exact(&mut msg_buff) {
+            error!("Error reading record file: {}", e.to_string());
+            return None;
+        }
+
+        self.cur_record += 1; // up the count of records read
+
+        Some(msg_buff)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ::record_file::RecordFile;
