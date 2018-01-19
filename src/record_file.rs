@@ -2,6 +2,7 @@ extern crate byteorder;
 
 use self::byteorder::{LE, ReadBytesExt, WriteBytesExt};
 
+use std::cell::RefCell;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write, Seek, SeekFrom, ErrorKind, Error as IOError};
@@ -115,35 +116,38 @@ impl Drop for RecordFile {
     }
 }
 
-pub struct RecordFileIterator<'a> {
-    record_file: &'a mut RecordFile,
+pub struct RecordFileIterator {
+    record_file: RefCell<RecordFile>,
     cur_record: u32
 }
 
-impl <'a> IntoIterator for &'a mut RecordFile {
+impl IntoIterator for RecordFile {
     type Item = Vec<u8>;
-    type IntoIter = RecordFileIterator<'a>;
+    type IntoIter = RecordFileIterator;
 
     fn into_iter(self) -> Self::IntoIter {
-        // move to the beginning of the messages
-        self.fd.seek(SeekFrom::Start(self.header_len as u64 + 4 + 8)).unwrap();
-
         debug!("Created RecordFileIterator");
 
-        RecordFileIterator{ record_file: self, cur_record: 0 }
+        RecordFileIterator{ record_file: RefCell::new(self), cur_record: 0 }
     }
 }
 
-impl <'a> Iterator for RecordFileIterator<'a> {
+impl Iterator for RecordFileIterator {
     type Item = Vec<u8>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // move to the start of the records if this is the first time through
+        if self.cur_record == 0 {
+            let offset = self.record_file.borrow().header_len as u64 + 4 + 8;
+            self.record_file.get_mut().fd.seek(SeekFrom::Start(offset)).unwrap();
+        }
+
         // invariant when we've reached the end of the records
-        if self.cur_record >= self.record_file.record_count {
+        if self.cur_record >= self.record_file.borrow().record_count {
             return None;
         }
 
-        let rec_size = match self.record_file.fd.read_u32::<LE>() {
+        let rec_size = match self.record_file.get_mut().fd.read_u32::<LE>() {
             Err(e) => { error!("Error reading record file: {}", e.to_string()); return None; },
             Ok(s) => s
         };
@@ -152,7 +156,7 @@ impl <'a> Iterator for RecordFileIterator<'a> {
 
         debug!("Reading record of size {}", rec_size);
 
-        if let Err(e) = self.record_file.fd.read_exact(&mut msg_buff) {
+        if let Err(e) = self.record_file.get_mut().fd.read_exact(&mut msg_buff) {
             error!("Error reading record file: {}", e.to_string());
             return None;
         }
