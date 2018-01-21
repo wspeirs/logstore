@@ -27,10 +27,30 @@ pub const BAD_COUNT: u32 = 0xFFFFFFFF;
 
 /// Record file
 pub struct RecordFile {
-    pub fd: File,          // the actual file
-    pub record_count: u32,  // the number of records in the file
-    pub header_len: usize, // the length of the header
-    pub end_of_file: u64   // the end of the file (size) as controlled by RecordFile
+    pub fd: File,           // actual file
+    pub file_path: String,  // location of the file on disk
+    pub record_count: u32,  // number of records in the file
+    pub header_len: usize,  // length of the header
+    pub end_of_file: u64    // end of the file (size) as controlled by RecordFile
+}
+
+pub fn buf2string(buf: &[u8]) -> String {
+    let mut ret = String::new();
+
+    for &b in buf {
+        ret.push_str(format!("{:02X} ", b).as_str());
+    }
+
+    return ret;
+}
+
+fn rec_to_string(size: u32, rec: &[u8]) -> String {
+    let mut dbg_buf = String::new();
+
+    dbg_buf.push_str(format!("{:08X} ", size).as_str());
+    dbg_buf.push_str(buf2string(&rec).as_str());
+
+    return dbg_buf;
 }
 
 impl RecordFile {
@@ -48,7 +68,7 @@ impl RecordFile {
             fd.write(header)?;
             fd.write_u32::<LE>(BAD_COUNT)?; // record count
             fd.write_u64::<LE>(end_of_file)?;
-            debug!("Created new RecordFile: {}", file_path);
+            debug!("Created new RecordFile {} with count {} and eof {}", file_path, record_count, end_of_file);
         } else {
             let mut header_buff = vec![0; header.len()];
 
@@ -69,10 +89,10 @@ impl RecordFile {
 
             fd.seek(SeekFrom::Start(end_of_file))?; // go to the end of the file
 
-            debug!("Opened RecordFile: {}", file_path);
+            debug!("Opened RecordFile {} with count {} and eof {}", file_path, record_count, end_of_file);
         }
 
-        Ok(RecordFile { fd, record_count, header_len: header.len(), end_of_file })
+        Ok(RecordFile { fd, file_path: String::from(file_path), record_count, header_len: header.len(), end_of_file })
     }
 
     /// Appends a record to the end of the file
@@ -81,11 +101,12 @@ impl RecordFile {
         let rec_loc = self.fd.seek(SeekFrom::Start(self.end_of_file))?;
         let rec_size = record.len();
 
+        // TODO: check if we're debugging
+        debug!("WROTE RECORD AT {}: {}", rec_loc, rec_to_string(rec_size as u32, record));
+
         self.fd.write_u32::<LE>(rec_size as u32)?;
         self.fd.write(record)?;
         self.fd.flush()?;
-
-        debug!("Wrote record of size: {}", rec_size);
 
         self.record_count += 1;
         self.end_of_file += (4 + rec_size) as u64;
@@ -102,6 +123,8 @@ impl RecordFile {
 
         self.fd.read_exact(&mut rec_buff)?;
 
+        debug!("READ RECORD FROM {}: {}", file_offset, rec_to_string(rec_size as u32, &rec_buff));
+
         Ok(rec_buff)
     }
 }
@@ -110,9 +133,10 @@ impl Drop for RecordFile {
     fn drop(&mut self) {
         self.fd.seek(SeekFrom::Start(self.header_len as u64)).unwrap();
         self.fd.write_u32::<LE>(self.record_count).unwrap(); // cannot return an error, so best attempt
+        self.fd.write_u64::<LE>(self.end_of_file).unwrap(); // write out the end of the file
         self.fd.flush().unwrap();
 
-        debug!("Closed RecordFile with {} messages", self.record_count);
+        debug!("RecordFile Drop: records: {}; eof: {}", self.record_count, self.end_of_file);
     }
 }
 

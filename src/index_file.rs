@@ -1,83 +1,240 @@
 extern crate byteorder;
 extern crate multimap;
+extern crate rmp_serde as rmps;
 
-use self::byteorder::{LE, ReadBytesExt, WriteBytesExt};
+use rmps::encode::to_vec;
+use rmps::decode::{from_slice, from_read};
+
+//use self::byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use self::multimap::MultiMap;
 
 use std::error::Error;
+use std::collections::HashMap;
+use std::fs::{remove_file, rename};
 
 use ::log_value::LogValue;
-use ::record_file::{RecordFile, RecordFileIterator, BAD_COUNT};
+use ::record_file::{RecordFile, RecordFileIterator, buf2string};
 use std::io::{Read, Write, Seek, SeekFrom, ErrorKind, Error as IOError};
 
-const FILE_HEADER: &[u8; 12] = b"LOGINDEX\x01\x00\x00\x00";
+//const FILE_HEADER: &[u8; 12] = b"LOGINDEX\x01\x00\x00\x00";
+const FILE_HEADER: &[u8; 12] = b"LOGINDEX\x01XXX";
 
 /// This is the on-disk structure of the index file
-/// |---------------------------------------|
-/// | Record file ...                       |
-/// |---------------------------------------|
-/// | term_start (u64)  term_len (u16)      |
-/// |---------------------------------------|
-/// | term_start (u64)  term_len (u16)      |
-/// |---------------------------------------|
-/// | term_start (u64)  term_len (u16)      |
-/// |---------------------------------------|
+/// |----------------------------------------|
+/// | term: offset in data file (term_entry) |
+/// |----------------------------------------|
+/// | ....                                   |
+/// |----------------------------------------|
+/// | term: offset in data file (term_entry) |
+/// |----------------------------------------|
+/// | serialized term map                    |
+/// |----------------------------------------|
 
 pub struct IndexFile {
-    rec_file: RecordFile, // the record file
-    index: MultiMap<LogValue, u64> // the in-memory index
+    rec_file: RecordFile,               // the record file holding the term -> Vec<offsets in file>
+    mem_index: MultiMap<LogValue, u64>, // not-yet-persisted index entries
+    term_map: HashMap<LogValue, u64>,   // term to location in index file
+    dir_path: String,
+    index_name: String
 }
 
 impl IndexFile  {
     pub fn new(dir_path: &str, index_name: &str) -> Result<IndexFile, Box<Error>> {
-        let mut file_path = String::from(dir_path);
+        let mut dir_path = String::from(dir_path);
 
-        if !file_path.ends_with("/") {
-            file_path.push_str("/")
+        if !dir_path.ends_with("/") {
+            dir_path.push_str("/")
         }
 
-        file_path.push_str(index_name);
-        file_path.push_str(".index");
+        let mut rec_file = RecordFile::new((dir_path.clone() + index_name + ".index").as_str(), FILE_HEADER)?;
 
-        let rec_file = RecordFile::new(&file_path, FILE_HEADER)?;
+        // the end of the record file, is where the serialized term map begins
+        let eof = rec_file.fd.seek(SeekFrom::End(0))?;
+        let begin = rec_file.fd.seek(SeekFrom::Start(rec_file.end_of_file))?;
+        let mut term_map = HashMap::new();
+
+        if eof-begin > 0 {
+            term_map = from_read(&rec_file.fd)?;
+            debug!("Read in {} terms from index {}", term_map.len(), index_name);
+        }
 
         // TODO: Run a check on this file
 
-        Ok(IndexFile { rec_file, index: MultiMap::new() })
+        Ok(IndexFile {
+            rec_file,
+            mem_index: MultiMap::new(),
+            term_map,
+            dir_path,
+            index_name: String::from(index_name)
+        })
     }
 
     pub fn add(&mut self, value: LogValue, offset: u64) {
         // simply add to the in-memory index
         // it's flushed to disk on close
-        self.index.insert(value, offset);
+        self.mem_index.insert(value, offset);
     }
 
     /// Flushes the in-memory index to disk
-    fn flush(&mut self) {
+    fn flush(&mut self) -> Result<(), Box<Error>> {
+        if self.mem_index.len() == 0 {
+            return Ok( () );
+        }
 
+        // create our new temporary RecordFile
+        let tmp_file_path = self.dir_path.clone() + self.index_name.as_str() + ".tmp_index";
+
+        let tmp_rec_file_res = RecordFile::new(tmp_file_path.as_str(), FILE_HEADER);
+
+        if let Err(e) = tmp_rec_file_res {
+            error!("Could not create temporary index file: {}", e.to_string());
+            return Err(e);
+        }
+
+        let mut tmp_rec_file = tmp_rec_file_res?;
+
+        // we'd need some sort of lock around this
+        // LOCK: START
+        self.term_map.clear(); // kill this as we re-populate it below
+
+        for rec in (&mut self.rec_file).into_iter() {
+            debug!("Attempting to deserialized: {}", buf2string(&rec));
+
+            // get our term and our locations from the file
+            let (term, mut locs): (LogValue, Vec<u64>) = from_slice(&rec)?;
+
+            debug!("Read term from disk: {}", term);
+
+            if self.mem_index.contains_key(&term) {
+                // go through each location in the in-memory index, and insert it into
+                // the location we're going to write to disk if it's not already found
+                for mem_loc in self.mem_index.get_vec(&term).unwrap() {
+                    debug!("\tFound term in mem_index");
+
+                    // didn't find this location in the list of locations
+                    if let Err(loc) = locs.binary_search(mem_loc) {
+                        debug!("\tDidn't find location, so inserting");
+                        locs.insert(loc, *mem_loc);
+                    }
+                }
+
+                debug!("\tRemoving term from mem_index: {}", term);
+                self.mem_index.remove(&term); // remove it from the map
+            }
+
+            let rec = (&term, locs);
+            let mut buf = to_vec(&rec)?;
+
+            debug!("\tInserting term record into new file & term_map: {}", term);
+
+            let loc = tmp_rec_file.append(&buf)?; // add the (term, locs) to our RecordFile
+            self.term_map.insert(term.clone(), loc); // add the record location to our term map
+        }
+
+        // now we need to go through whatever is left in the in-memory map
+        for (term, locs) in self.mem_index.iter_all() {
+            let rec = (term, locs);
+            let mut buf = to_vec(&rec)?;
+
+            debug!("Inserting term record into new file & term_map: {}", term);
+            debug!("Writing rec to file: {}", buf2string(&buf));
+
+            let loc = tmp_rec_file.append(&buf)?; // add the (term, locs) to our RecordFile
+            self.term_map.insert(term.clone(), loc); // add the record location to our term map
+            // don't both deleting from mem_index as we'll clear the whole thing below
+        }
+
+        self.mem_index.clear(); // everything should be written to disk at this point
+
+        // Switch the two files
+        remove_file(&self.rec_file.file_path);
+        rename(tmp_file_path, &self.rec_file.file_path);
+        self.rec_file = tmp_rec_file;
+
+        // LOCK: END
+
+        return Ok( () )
     }
 }
 
 impl Drop for IndexFile {
     fn drop(&mut self) {
-//        self.fd.seek(SeekFrom::Start(self.header_len as u64)).unwrap();
-//        self.fd.write_u32::<LE>(self.num_records).unwrap(); // cannot return an error, so best attempt
-//        self.fd.flush().unwrap();
-//
-//        debug!("Closed RecordFile with {} messages", self.num_records);
+        debug!("Closing index {}", self.index_name);
+
+        // flush the in-memory terms to disk
+        self.flush().unwrap();
+//        if let Err(e) = self.flush() {
+//            error!("Could not flush to disk: {}", e.to_string());
+//            return;
+//        }
+
+        let mut buff = to_vec(&self.term_map).unwrap();
+
+        if let Err(e) = self.rec_file.fd.seek(SeekFrom::Start(self.rec_file.end_of_file)) {
+            error!("Unable to seek to the end of the RecordFile: {}", e.to_string());
+            return;
+        }
+
+        if let Err(e) = self.rec_file.fd.write(&buff) {
+            error!("Error writing serialized term map to file: {}", e.to_string());
+        }
+
+        info!("Closed index: {}", self.index_name);
     }
 }
+
+//pub struct IndexFileIterator {
+//    rec_iter: RecordFileIterator,
+//}
+//
+//impl IntoIterator for IndexFile {
+//    type Item = (LogValue, Vec<u64>); // just going with a tuple for now
+//    type IntoIter = IndexFileIterator;
+//
+//    fn into_iter(self) -> Self::IntoIter {
+//        IndexFileIterator{ rec_iter: (&mut self.rec_file).into_iter() }
+//    }
+//}
+//
+//impl Iterator for IndexFileIterator {
+//    type Item = (LogValue, Vec<u64>); // just going with a tuple for now
+//
+//    fn next(&mut self) -> Option<Self::Item> {
+//        let rec = self.rec_iter.next();
+//
+//        if rec.is_none() {
+//            return None;
+//        }
+//
+//        match deserialize(rec.unwrap()) {
+//            Err(_) => None,
+//            Ok(v) => Some(v)
+//        }
+//    }
+//}
 
 
 #[cfg(test)]
 mod tests {
     use ::index_file::IndexFile;
+    use ::log_value::LogValue;
+    use serde_json::Number;
+
     use simple_logger;
 
     #[test]
     fn new_file_no_slash() {
         simple_logger::init().unwrap();  // this will panic on error
         IndexFile::new("/tmp", "id").unwrap();
+    }
+
+    #[test]
+    fn add_flush() {
+        simple_logger::init().unwrap();  // this will panic on error
+        let mut index_file = IndexFile::new("/tmp", "id").unwrap();
+
+        index_file.add(LogValue::Number(Number::from(7)), 24);
+        index_file.add(LogValue::String(String::from("test")), 16);
     }
 
 }

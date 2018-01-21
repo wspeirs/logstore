@@ -3,11 +3,11 @@ extern crate serde_json;
 use serde_json::Number;
 use serde_json::Value as JsonValue;
 
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Display};
 use std::hash::{Hash, Hasher};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum LogValue {
     Null,
     Bool(bool),
@@ -18,6 +18,28 @@ pub enum LogValue {
 }
 
 impl Debug for LogValue {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            LogValue::Null => {
+                formatter.debug_tuple("Null").finish()
+            }
+            LogValue::Bool(v) => {
+                formatter.debug_tuple("Bool").field(&v).finish()
+            }
+            LogValue::Number(ref v) => {
+                Debug::fmt(v, formatter)
+            }
+            LogValue::String(ref v) => {
+                formatter.debug_tuple("String").field(v).finish()
+            }
+            LogValue::Array(ref v) => {
+                formatter.debug_tuple("Array").field(v).finish()
+            }
+        }
+    }
+}
+
+impl Display for LogValue {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             LogValue::Null => {
