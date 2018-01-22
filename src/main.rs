@@ -6,6 +6,8 @@ extern crate simple_logger;
 #[macro_use] extern crate serde_derive;
 extern crate serde;
 extern crate rmp_serde as rmps;
+extern crate twox_hash;
+extern crate byteorder;
 
 use rmps::encode::to_vec;
 use rmps::decode::from_slice;
@@ -22,14 +24,38 @@ mod log_file;
 mod index_file;
 mod log_value;
 mod record_file;
+mod json;
 
 use std::collections::HashMap;
 use ::log_value::LogValue;
 use ::utils::buf2string;
-
+use ::json::json2map;
+use ::log_file::LogFile;
+use ::index_file::IndexFile;
 
 fn main() {
     simple_logger::init().unwrap();  // this will panic on error
+
+    let json_str = json!({
+        "time":"[11/Aug/2014:17:21:45 +0000]",
+        "remoteIP":"127.0.0.1",
+        "host":"localhost",
+        "request":"/index.html",
+        "query":"",
+        "method":"GET",
+        "status":"200",
+        "userAgent":"ApacheBench/2.3",
+        "referer":"-"
+    });
+
+    let log = json2map(&json_str.to_string()).unwrap();
+    let mut log_file = LogFile::new("/tmp/").unwrap();
+    let mut req_index_file = IndexFile::new("/tmp/", "request").unwrap();
+
+    let loc = log_file.add(&log).unwrap();
+
+    req_index_file.add(log.get("request").unwrap().to_owned(), loc);
+
 
 //    let id = b"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF";
 //
@@ -50,18 +76,5 @@ fn main() {
 //
 //    assert_eq!(hm, from_slice(buff).unwrap());
 
-    let lg = LogValue::String(String::from("test"));
-    {
-        let rec_ref = (&lg, vec![34, 64, 78]);
-        println!("VEC REF: {}", buf2string(to_vec(&rec_ref).unwrap().as_slice()));
-    }
 
-    let rec = (lg, vec![34, 64, 78]);
-
-    println!("    VEC: {}", buf2string(to_vec(&rec).unwrap().as_slice()));
-
-    let buff = b"\x92\x92\x03\x91\xA4\x74\x65\x73\x74\x93\x22\x40\x4E";
-
-    assert_eq!(rec, from_slice(buff).unwrap());
-//    assert_eq!(hm, from_slice(buff).unwrap());
 }
