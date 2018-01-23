@@ -78,7 +78,7 @@ impl IndexFile  {
         }
 
         // create our new temporary RecordFile
-        let tmp_file_path = self.dir_path.join(self.index_name + ".tmp_index");
+        let tmp_file_path = self.dir_path.join(self.index_name.to_owned() + ".tmp_index");
 
         let tmp_rec_file_res = RecordFile::new(&tmp_file_path, FILE_HEADER);
 
@@ -164,7 +164,7 @@ impl Drop for IndexFile {
 //            return;
 //        }
 
-        let mut buff = to_vec(&self.term_map).unwrap();
+        let buff = to_vec(&self.term_map).unwrap();
 
         if let Err(e) = self.rec_file.fd.seek(SeekFrom::Start(self.rec_file.end_of_file)) {
             error!("Unable to seek to the end of the RecordFile: {}", e.to_string());

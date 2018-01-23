@@ -53,12 +53,10 @@ fn main() {
     });
 
     let log = json2map(&json_str.to_string()).unwrap();
-    let mut log_file = LogFile::new(Path::new("/tmp/")).unwrap();
-    let mut req_index_file = IndexFile::new(Path::new("/tmp/"), "request").unwrap();
 
-    let loc = log_file.add(&log).unwrap();
+    let mut data_manager = DataManager::new(Path::new("/tmp")).unwrap();
 
-    req_index_file.add(log.get("request").unwrap().to_owned(), loc);
+    data_manager.insert(&log);
 
 
 //    let id = b"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF";
