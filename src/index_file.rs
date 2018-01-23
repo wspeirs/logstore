@@ -11,6 +11,7 @@ use self::multimap::MultiMap;
 use std::error::Error;
 use std::collections::HashMap;
 use std::fs::{remove_file, rename};
+use std::path::{Path, PathBuf};
 
 use ::log_value::LogValue;
 use ::record_file::{RecordFile, RecordFileIterator, buf2string};
@@ -34,19 +35,14 @@ pub struct IndexFile {
     rec_file: RecordFile,               // the record file holding the term -> Vec<offsets in file>
     mem_index: MultiMap<LogValue, u64>, // not-yet-persisted index entries
     term_map: HashMap<LogValue, u64>,   // term to location in index file
-    dir_path: String,
+    dir_path: PathBuf,
     index_name: String
 }
 
 impl IndexFile  {
-    pub fn new(dir_path: &str, index_name: &str) -> Result<IndexFile, Box<Error>> {
-        let mut dir_path = String::from(dir_path);
-
-        if !dir_path.ends_with("/") {
-            dir_path.push_str("/")
-        }
-
-        let mut rec_file = RecordFile::new((dir_path.clone() + index_name + ".index").as_str(), FILE_HEADER)?;
+    pub fn new(dir_path: &Path, index_name: &str) -> Result<IndexFile, Box<Error>> {
+        let file_path = dir_path.join(index_name.to_owned() + ".index");
+        let mut rec_file = RecordFile::new(&file_path, FILE_HEADER)?;
 
         // the end of the record file, is where the serialized term map begins
         let eof = rec_file.fd.seek(SeekFrom::End(0))?;
@@ -64,7 +60,7 @@ impl IndexFile  {
             rec_file,
             mem_index: MultiMap::new(),
             term_map,
-            dir_path,
+            dir_path: PathBuf::from(dir_path),
             index_name: String::from(index_name)
         })
     }
@@ -82,9 +78,9 @@ impl IndexFile  {
         }
 
         // create our new temporary RecordFile
-        let tmp_file_path = self.dir_path.clone() + self.index_name.as_str() + ".tmp_index";
+        let tmp_file_path = self.dir_path.join(self.index_name + ".tmp_index");
 
-        let tmp_rec_file_res = RecordFile::new(tmp_file_path.as_str(), FILE_HEADER);
+        let tmp_rec_file_res = RecordFile::new(&tmp_file_path, FILE_HEADER);
 
         if let Err(e) = tmp_rec_file_res {
             error!("Could not create temporary index file: {}", e.to_string());

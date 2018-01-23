@@ -25,13 +25,17 @@ mod index_file;
 mod log_value;
 mod record_file;
 mod json;
+mod data_manager;
 
 use std::collections::HashMap;
+use std::path::Path;
+
 use ::log_value::LogValue;
 use ::utils::buf2string;
 use ::json::json2map;
 use ::log_file::LogFile;
 use ::index_file::IndexFile;
+use ::data_manager::DataManager;
 
 fn main() {
     simple_logger::init().unwrap();  // this will panic on error
@@ -49,8 +53,8 @@ fn main() {
     });
 
     let log = json2map(&json_str.to_string()).unwrap();
-    let mut log_file = LogFile::new("/tmp/").unwrap();
-    let mut req_index_file = IndexFile::new("/tmp/", "request").unwrap();
+    let mut log_file = LogFile::new(Path::new("/tmp/")).unwrap();
+    let mut req_index_file = IndexFile::new(Path::new("/tmp/"), "request").unwrap();
 
     let loc = log_file.add(&log).unwrap();
 

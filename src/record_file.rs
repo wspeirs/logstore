@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write, Seek, SeekFrom, ErrorKind, Error as IOError};
+use std::path::{Path, PathBuf};
 
 
 /// This struct represents the on-disk format of the RecordFile
@@ -28,7 +29,7 @@ pub const BAD_COUNT: u32 = 0xFFFFFFFF;
 /// Record file
 pub struct RecordFile {
     pub fd: File,           // actual file
-    pub file_path: String,  // location of the file on disk
+    pub file_path: PathBuf, // location of the file on disk
     pub record_count: u32,  // number of records in the file
     pub header_len: usize,  // length of the header
     pub end_of_file: u64    // end of the file (size) as controlled by RecordFile
@@ -54,8 +55,8 @@ fn rec_to_string(size: u32, rec: &[u8]) -> String {
 }
 
 impl RecordFile {
-    pub fn new(file_path: &str, header: &[u8]) -> Result<RecordFile, Box<Error>> {
-        debug!("Attempting to open file: {}", file_path);
+    pub fn new(file_path: &PathBuf, header: &[u8]) -> Result<RecordFile, Box<Error>> {
+        debug!("Attempting to open file: {}", file_path.display());
 
         let mut fd = OpenOptions::new().read(true).write(true).create(true).open(&file_path)?;
         let mut record_count = 0;
@@ -68,14 +69,14 @@ impl RecordFile {
             fd.write(header)?;
             fd.write_u32::<LE>(BAD_COUNT)?; // record count
             fd.write_u64::<LE>(end_of_file)?;
-            debug!("Created new RecordFile {} with count {} and eof {}", file_path, record_count, end_of_file);
+            debug!("Created new RecordFile {} with count {} and eof {}", file_path.display(), record_count, end_of_file);
         } else {
             let mut header_buff = vec![0; header.len()];
 
             fd.read_exact(&mut header_buff)?;
 
             if header != header_buff.as_slice() {
-                return Err(Box::new(IOError::new(ErrorKind::InvalidData, format!("Invalid file header for: {}", file_path))));
+                return Err(Box::new(IOError::new(ErrorKind::InvalidData, format!("Invalid file header for: {}", file_path.display()))));
             }
 
             record_count = fd.read_u32::<LE>()?;
@@ -89,10 +90,10 @@ impl RecordFile {
 
             fd.seek(SeekFrom::Start(end_of_file))?; // go to the end of the file
 
-            debug!("Opened RecordFile {} with count {} and eof {}", file_path, record_count, end_of_file);
+            debug!("Opened RecordFile {} with count {} and eof {}", file_path.display(), record_count, end_of_file);
         }
 
-        Ok(RecordFile { fd, file_path: String::from(file_path), record_count, header_len: header.len(), end_of_file })
+        Ok(RecordFile { fd, file_path: PathBuf::from(file_path), record_count, header_len: header.len(), end_of_file })
     }
 
     /// Appends a record to the end of the file

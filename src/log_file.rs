@@ -15,6 +15,7 @@ use std::hash::Hasher;
 use std::error::Error;
 use std::io::{ErrorKind, Error as IOError};
 use std::collections::HashMap;
+use std::path::Path;
 
 use ::record_file::{RecordFile, RecordFileIterator, BAD_COUNT};
 use ::log_value::LogValue;
@@ -28,20 +29,14 @@ pub struct LogFile {
 
 impl LogFile {
     /// Creates a new LogFile
-    pub fn new(dir_path: &str) -> Result<LogFile, Box<Error>> {
-        let mut file_path = String::from(dir_path);
-
-        if !file_path.ends_with("/") {
-            file_path.push_str("/");
-        }
-
-        file_path.push_str("logs.data");
+    pub fn new(dir_path: &Path) -> Result<LogFile, Box<Error>> {
+        let file_path = dir_path.join("logs.data");
 
         let rec_file = RecordFile::new(&file_path, FILE_HEADER)?;
         let mut ret = LogFile{ rec_file };
 
         if ret.rec_file.record_count == BAD_COUNT {
-            error!("{} not properly closed, attempting to check file", file_path);
+            error!("{} not properly closed, attempting to check file", file_path.display());
 
             return match ret.check() {
                 Ok(count) => { info!("Read {} messages from file successfully", count); Ok(ret) },
