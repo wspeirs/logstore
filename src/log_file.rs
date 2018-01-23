@@ -1,19 +1,10 @@
 extern crate rmp_serde as rmps;
-extern crate twox_hash;
-extern crate base32;
 extern crate time;
-extern crate byteorder;
 
 use rmps::encode::to_vec;
-use rmps::decode::{from_slice, from_read};
-use self::twox_hash::XxHash;
-use self::base32::Alphabet; // TODO: Switch this to base64
-use self::byteorder::{LE, WriteBytesExt};
+use rmps::decode::from_slice;
 
-use std::str;
-use std::hash::Hasher;
 use std::error::Error;
-use std::io::{ErrorKind, Error as IOError};
 use std::collections::HashMap;
 use std::path::Path;
 

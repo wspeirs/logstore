@@ -1,22 +1,15 @@
 #[macro_use] extern crate log;
 #[macro_use] extern crate serde_json;
-
-extern crate simple_logger;
-
 #[macro_use] extern crate serde_derive;
+extern crate simple_logger;
 extern crate serde;
 extern crate rmp_serde as rmps;
 extern crate twox_hash;
 extern crate byteorder;
+extern crate base64;
 
 use rmps::encode::to_vec;
 use rmps::decode::from_slice;
-
-extern crate base32;
-extern crate base64;
-
-use self::base32::Alphabet;
-use base64::{Config, CharacterSet, LineWrap};
 
 // my files/modules
 mod utils;
@@ -58,14 +51,6 @@ fn main() {
 
     data_manager.insert(&log);
 
-
-//    let id = b"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF";
-//
-//    let ret_32 = base32::encode(Alphabet::RFC4648 { padding: false }, id);
-//    println!("BASE32: {}", ret_32);
-//
-//    let ret_64 = base64::encode_config(id, Config::new(CharacterSet::Standard, false, true, LineWrap::NoWrap));
-//    println!("BASE64: {}", ret_64);
 
 //    let mut hm = HashMap::new();
 //

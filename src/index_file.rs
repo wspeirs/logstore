@@ -14,8 +14,8 @@ use std::fs::{remove_file, rename};
 use std::path::{Path, PathBuf};
 
 use ::log_value::LogValue;
-use ::record_file::{RecordFile, RecordFileIterator, buf2string};
-use std::io::{Read, Write, Seek, SeekFrom, ErrorKind, Error as IOError};
+use ::record_file::{RecordFile, buf2string};
+use std::io::{Write, Seek, SeekFrom};
 
 //const FILE_HEADER: &[u8; 12] = b"LOGINDEX\x01\x00\x00\x00";
 const FILE_HEADER: &[u8; 12] = b"LOGINDEX\x01XXX";
@@ -143,8 +143,8 @@ impl IndexFile  {
         self.mem_index.clear(); // everything should be written to disk at this point
 
         // Switch the two files
-        remove_file(&self.rec_file.file_path);
-        rename(tmp_file_path, &self.rec_file.file_path);
+        remove_file(&self.rec_file.file_path)?;
+        rename(tmp_file_path, &self.rec_file.file_path)?;
         self.rec_file = tmp_rec_file;
 
         // LOCK: END

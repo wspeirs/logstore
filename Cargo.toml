@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["William Speirs <bill.speirs@gmail.com>"]
 
 [dependencies]
-base32 = "0.3.1"
 base64 = "0.9.0"
 byteorder = "1.2.1"
 log = "0.4"

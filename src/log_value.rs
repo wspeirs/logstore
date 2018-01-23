@@ -3,7 +3,6 @@ extern crate byteorder;
 
 use serde_json::Number;
 use serde_json::Value as JsonValue;
-use serde::{Deserialize, Serialize};
 use byteorder::{LE, WriteBytesExt};
 
 use std::fmt::{self, Debug, Display};
@@ -28,7 +27,7 @@ impl LogValue {
             &LogValue::Number(ref n) => {
                 let mut buff = vec![];
 
-                buff.write_f64::<LE>(n.as_f64().unwrap());
+                buff.write_f64::<LE>(n.as_f64().unwrap()).unwrap();
 
                 buff
             },

@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write, Seek, SeekFrom, ErrorKind, Error as IOError};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 
 /// This struct represents the on-disk format of the RecordFile
