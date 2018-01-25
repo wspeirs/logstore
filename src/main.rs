@@ -1,12 +1,13 @@
 #[macro_use] extern crate log;
 #[macro_use] extern crate serde_json;
 #[macro_use] extern crate serde_derive;
-extern crate simple_logger;
-extern crate serde;
-extern crate rmp_serde as rmps;
-extern crate twox_hash;
-extern crate byteorder;
 extern crate base64;
+extern crate byteorder;
+extern crate itertools;
+extern crate rmp_serde as rmps;
+extern crate serde;
+extern crate simple_logger;
+extern crate twox_hash;
 
 use rmps::encode::to_vec;
 use rmps::decode::from_slice;
@@ -33,6 +34,8 @@ use ::data_manager::DataManager;
 fn main() {
     simple_logger::init().unwrap();  // this will panic on error
 
+    let mut data_manager = DataManager::new(Path::new("/tmp")).unwrap();
+
     let json_str = json!({
         "time":"[11/Aug/2014:17:21:45 +0000]",
         "remoteIP":"127.0.0.1",
@@ -47,9 +50,11 @@ fn main() {
 
     let log = json2map(&json_str.to_string()).unwrap();
 
-    let mut data_manager = DataManager::new(Path::new("/tmp")).unwrap();
-
     data_manager.insert(&log);
+
+    let ret = data_manager.get("host", &LogValue::String(String::from("localhost"))).unwrap();
+
+    assert_eq!(log, *ret.first().unwrap());
 
 
 //    let mut hm = HashMap::new();

@@ -66,4 +66,22 @@ impl DataManager {
 
         Ok( () )
     }
+
+    pub fn get(&mut self, key: &str, value: &LogValue) -> Result<Vec<HashMap<String, LogValue>>, Box<Error>> {
+        // get the locations from the index, or return if the key is not found
+        let locs = match self.indices.get_mut(key) {
+            Some(i) => i.get(value)?,
+            None => return Ok(Vec::new())
+        };
+
+        // create the vector to return all the log entires
+        let mut ret = Vec::<HashMap<String, LogValue>>::with_capacity(locs.len());
+
+        // go through the record file fetching the records
+        for loc in locs {
+            ret.push(self.log_file.get(loc)?);
+        }
+
+        Ok(ret)
+    }
 }

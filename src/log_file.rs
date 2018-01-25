@@ -62,60 +62,13 @@ impl LogFile {
         return Ok(loc);
     }
 
-//    pub fn tombstone(&mut self, id: &str) -> Result<bool, Box<Error>> {
-//        let mut prev_pos = NUM_MSG_OFFSET + 4; // start of the messages
-//        let mut found = false;
-//
-//        for mut block in self.into_iter() {
-//            let mut cur = Cursor::new(block);
-//            cur.seek(SeekFrom::Start(1))?; // move past the tombstone
-//
-//            let msg_size = cur.read_u32::<LE>().unwrap() as u64;
-//            block = cur.into_inner();
-//
-//            let message = str::from_utf8(&block[5..])?;
-//
-//            let json = match serde_json::from_str(&message) {
-//                Err(e) => {
-//                    warn!("Error parsing message into JSON: {}", e.to_string());
-//                    debug!("MSG: {}", message);
-//                    return Err(From::from(e));
-//                },
-//                Ok(x) => match x {
-//                    Value::Object(o) => o,
-//                    _ => {
-//                        warn!("Found non-object JSON: {}", message);
-//                        return Err(From::from("Found non-object JSON"));
-//                    }
-//                }
-//            };
-//
-//            if json.get("__id").unwrap() == id {
-//                debug!("Found id to tombstone");
-//                found = true;
-//                break;
-//            }
-//
-//            prev_pos += 5 + msg_size;
-//        }
-//
-//        if found {
-//            // go back to the start of the other message
-//            self.fd.seek(SeekFrom::Start(prev_pos))?;
-//
-//            debug!("Tombstoning at {}", prev_pos);
-//
-//            // write out that we want to tombstone it
-//            self.fd.write_u8(0x01)?;
-//
-//            // go to the end of the file
-//            self.fd.seek(SeekFrom::End(0))?;
-//
-//            return Ok(true);
-//        } else {
-//            return Ok(false); // we weren't able to find it
-//        }
-//    }
+    pub fn get(&mut self, location: u64) -> Result<HashMap<String, LogValue>, Box<Error>> {
+        match from_slice(self.rec_file.read_at(location)?.as_slice()) {
+            Err(e) => Err(Box::new(e)),
+            Ok(v) => Ok(v)
+        }
+    }
+
 }
 
 pub struct LogFileIterator {
@@ -155,25 +108,28 @@ impl Iterator for LogFileIterator {
 #[cfg(test)]
 mod tests {
     use ::log_file::LogFile;
+    use ::json::json2map;
+
+    use std::path::Path;
     use simple_logger;
 
 
     #[test]
     fn new_file_no_slash() {
         simple_logger::init().unwrap();  // this will panic on error
-        LogFile::new("/tmp").unwrap();
+        LogFile::new(Path::new("/tmp")).unwrap();
     }
 
     #[test]
     fn new_file_with_slash() {
         simple_logger::init().unwrap();  // this will panic on error
-        LogFile::new("/tmp/").unwrap();
+        LogFile::new(Path::new("/tmp/")).unwrap();
     }
 
     #[test]
     fn check_file() {
         simple_logger::init().unwrap();  // this will panic on error
-        let mut log_file = LogFile::new("/tmp/").unwrap();
+        let mut log_file = LogFile::new(Path::new("/tmp/")).unwrap();
         let num_logs = log_file.rec_file.record_count;
 
         assert_eq!(num_logs, log_file.check().unwrap());
@@ -182,15 +138,15 @@ mod tests {
     #[test]
     fn add_valid_msg() {
         simple_logger::init().unwrap();  // this will panic on error
-        let mut msg_file = LogFile::new("/tmp").unwrap();
-        let msg = r#"{
+        let mut msg_file = LogFile::new(Path::new("/tmp")).unwrap();
+        let msg = json!({
             "d": 23,
             "c": null,
             "b": true,
             "a": "something"
-        }"#;
+        });
 
-        let id = msg_file.add(msg).unwrap();
+        let id = msg_file.add(&json2map(&msg.to_string()).unwrap()).unwrap();
 
         println!("ID: {}", id);
     }
@@ -198,29 +154,29 @@ mod tests {
     #[test]
     fn add_nested_json() {
         simple_logger::init().unwrap();  // this will panic on error
-        let mut msg_file = LogFile::new("/tmp").unwrap();
-        let msg = r#"{
+        let mut msg_file = LogFile::new(Path::new("/tmp")).unwrap();
+        let msg = json!({
             "c": "test",
             "b": 23,
             "a": { "x": "z" }
-        }"#;
+        });
 
         // this should be an error
-        assert!(msg_file.add(msg).is_err());
+        assert!(msg_file.add(&json2map(&msg.to_string()).unwrap()).is_err());
     }
 
     #[test]
     fn add_illegal_field() {
         simple_logger::init().unwrap();  // this will panic on error
-        let mut msg_file = LogFile::new("/tmp").unwrap();
-        let msg = r#"{
+        let mut msg_file = LogFile::new(Path::new("/tmp")).unwrap();
+        let msg = json!({
             "__c": "test",
             "b": 23,
             "a": true
-        }"#;
+        });
 
         // this should be an error
-        assert!(msg_file.add(msg).is_err());
+        assert!(msg_file.add(&json2map(&msg.to_string()).unwrap()).is_err());
     }
 
 //    #[test]

@@ -1,6 +1,7 @@
 extern crate byteorder;
 extern crate multimap;
 extern crate rmp_serde as rmps;
+extern crate itertools;
 
 use rmps::encode::to_vec;
 use rmps::decode::{from_slice, from_read};
@@ -12,6 +13,8 @@ use std::error::Error;
 use std::collections::HashMap;
 use std::fs::{remove_file, rename};
 use std::path::{Path, PathBuf};
+use itertools::Itertools;
+use itertools::EitherOrBoth::{Left, Right, Both};
 
 use ::log_value::LogValue;
 use ::record_file::{RecordFile, buf2string};
@@ -69,6 +72,38 @@ impl IndexFile  {
         // simply add to the in-memory index
         // it's flushed to disk on close
         self.mem_index.insert(value, offset);
+    }
+
+    #[allow(resolve_trait_on_defaulted_unit)]
+    pub fn get(&mut self, value: &LogValue) -> Result<Vec<u64>, Box<Error>> {
+        let mut in_memory = match self.mem_index.get_vec(value) {
+            Some(v) => v.clone(),
+            None => Vec::<u64>::new()
+        };
+
+        // sort the vector
+        in_memory.sort_unstable();
+
+        let on_disk = match self.term_map.get(value) {
+            None => Vec::new(),
+            Some(x) => {
+                // read the array off the disk
+                let rec: (LogValue, Vec<u64>) = from_slice(self.rec_file.read_at(*x)?.as_slice())?;
+
+                rec.1
+            }
+        };
+
+        // compute a union iterator for the two lists
+        Ok(in_memory.iter()
+            .merge_join_by(on_disk.iter(), |i,j| i.cmp(j))
+            .map(|e| {
+                match e {
+                    Left(x) => *x,
+                    Right(x) => *x,
+                    Both(x,_) => *x
+                }
+        }).collect::<Vec<_>>())
     }
 
     /// Flushes the in-memory index to disk
@@ -159,10 +194,6 @@ impl Drop for IndexFile {
 
         // flush the in-memory terms to disk
         self.flush().unwrap();
-//        if let Err(e) = self.flush() {
-//            error!("Could not flush to disk: {}", e.to_string());
-//            return;
-//        }
 
         let buff = to_vec(&self.term_map).unwrap();
 
@@ -214,23 +245,35 @@ impl Drop for IndexFile {
 mod tests {
     use ::index_file::IndexFile;
     use ::log_value::LogValue;
-    use serde_json::Number;
 
+    use std::path::Path;
+    use serde_json::Number;
     use simple_logger;
 
     #[test]
     fn new_file_no_slash() {
         simple_logger::init().unwrap();  // this will panic on error
-        IndexFile::new("/tmp", "id").unwrap();
+        IndexFile::new(Path::new("/tmp"), "id").unwrap();
     }
 
     #[test]
     fn add_flush() {
         simple_logger::init().unwrap();  // this will panic on error
-        let mut index_file = IndexFile::new("/tmp", "id").unwrap();
+        let mut index_file = IndexFile::new(Path::new("/tmp"), "id").unwrap();
 
         index_file.add(LogValue::Number(Number::from(7)), 24);
         index_file.add(LogValue::String(String::from("test")), 16);
     }
 
+    #[test]
+    fn get() {
+        simple_logger::init().unwrap();  // this will panic on error
+        let mut index_file = IndexFile::new(Path::new("/tmp"), "test").unwrap();
+
+        index_file.add(LogValue::String(String::from("test")), 16);
+
+        let ret = index_file.get(&LogValue::String(String::from("test"))).unwrap();
+
+        assert_eq!(ret, [16]);
+    }
 }

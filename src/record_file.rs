@@ -246,7 +246,9 @@ impl <'a> Iterator for MutRecordFileIterator<'a> {
 #[cfg(test)]
 mod tests {
     use ::record_file::RecordFile;
+
     use simple_logger;
+    use std::path::PathBuf;
     use std::fs::remove_file;
     use std::io::{Read, Write, Seek, SeekFrom, ErrorKind, Error as IOError};
 
@@ -254,7 +256,7 @@ mod tests {
     fn new() {
         simple_logger::init().unwrap();  // this will panic on error
         remove_file("/tmp/test.data");
-        let mut rec_file = RecordFile::new("/tmp/test.data", "ABCD".as_bytes()).unwrap();
+        let mut rec_file = RecordFile::new(&PathBuf::from("/tmp/test.data"), "ABCD".as_bytes()).unwrap();
 
         rec_file.fd.seek(SeekFrom::Start(rec_file.end_of_file));
         rec_file.fd.write("TEST".as_bytes());
@@ -264,7 +266,7 @@ mod tests {
     fn append() {
         simple_logger::init().unwrap();  // this will panic on error
         remove_file("/tmp/test.data");
-        let mut rec_file = RecordFile::new("/tmp/test.data", "ABCD".as_bytes()).unwrap();
+        let mut rec_file = RecordFile::new(&PathBuf::from("/tmp/test.data"), "ABCD".as_bytes()).unwrap();
 
         // put this here to see if it messes with stuff
         rec_file.fd.seek(SeekFrom::Start(rec_file.end_of_file));
@@ -283,7 +285,7 @@ mod tests {
     fn read_at() {
         simple_logger::init().unwrap();  // this will panic on error
         remove_file("/tmp/test.data");
-        let mut rec_file = RecordFile::new("/tmp/test.data", "ABCD".as_bytes()).unwrap();
+        let mut rec_file = RecordFile::new(&PathBuf::from("/tmp/test.data"), "ABCD".as_bytes()).unwrap();
         let rec = "THE_RECORD".as_bytes();
 
         rec_file.append(rec).unwrap();
@@ -298,7 +300,7 @@ mod tests {
     fn iterate() {
         simple_logger::init().unwrap();  // this will panic on error
         remove_file("/tmp/test.data");
-        let mut rec_file = RecordFile::new("/tmp/test.data", "ABCD".as_bytes()).unwrap();
+        let mut rec_file = RecordFile::new(&PathBuf::from("/tmp/test.data"), "ABCD".as_bytes()).unwrap();
 
         // put this here to see if it messes with stuff
         rec_file.fd.seek(SeekFrom::Start(rec_file.end_of_file));
