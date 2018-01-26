@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 use std::error::Error;
 use std::io::{Error as IOError, ErrorKind};
@@ -83,5 +82,11 @@ impl DataManager {
         }
 
         Ok(ret)
+    }
+
+    pub fn flush(&mut self) -> () {
+        for val in self.indices.values_mut() {
+            val.flush();
+        }
     }
 }

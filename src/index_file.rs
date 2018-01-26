@@ -107,7 +107,7 @@ impl IndexFile  {
     }
 
     /// Flushes the in-memory index to disk
-    fn flush(&mut self) -> Result<(), Box<Error>> {
+    pub fn flush(&mut self) -> Result<(), Box<Error>> {
         if self.mem_index.len() == 0 {
             return Ok( () );
         }
@@ -178,9 +178,11 @@ impl IndexFile  {
         self.mem_index.clear(); // everything should be written to disk at this point
 
         // Switch the two files
-        remove_file(&self.rec_file.file_path)?;
-        rename(tmp_file_path, &self.rec_file.file_path)?;
-        self.rec_file = tmp_rec_file;
+        remove_file(&self.rec_file.file_path).unwrap();
+        rename(tmp_file_path, &self.rec_file.file_path).unwrap();
+
+        tmp_rec_file.file_path = self.rec_file.file_path.clone(); // update the file name
+        self.rec_file = tmp_rec_file; // update the rec_file
 
         // LOCK: END
 
@@ -263,6 +265,23 @@ mod tests {
 
         index_file.add(LogValue::Number(Number::from(7)), 24);
         index_file.add(LogValue::String(String::from("test")), 16);
+    }
+
+
+    #[test]
+    fn double_flush() {
+        simple_logger::init().unwrap();  // this will panic on error
+        let mut index_file = IndexFile::new(Path::new("/tmp"), "id").unwrap();
+
+        index_file.add(LogValue::Number(Number::from(7)), 24);
+
+        debug!("First flush");
+
+        index_file.flush();
+
+        index_file.add(LogValue::String(String::from("test")), 16);
+
+        debug!("Second flush");
     }
 
     #[test]

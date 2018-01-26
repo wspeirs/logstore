@@ -31,8 +31,12 @@ use ::log_file::LogFile;
 use ::index_file::IndexFile;
 use ::data_manager::DataManager;
 
+extern crate time;
+use time::PreciseTime;
+use serde_json::Number;
+
 fn main() {
-    simple_logger::init().unwrap();  // this will panic on error
+//    simple_logger::init().unwrap();  // this will panic on error
 
     let mut data_manager = DataManager::new(Path::new("/tmp")).unwrap();
 
@@ -48,13 +52,51 @@ fn main() {
         "referer":"-"
     });
 
-    let log = json2map(&json_str.to_string()).unwrap();
+    let mut log = json2map(&json_str.to_string()).unwrap();
 
-    data_manager.insert(&log);
+    println!("Starting inserts...");
 
-    let ret = data_manager.get("host", &LogValue::String(String::from("localhost"))).unwrap();
+    let start = PreciseTime::now();
 
-    assert_eq!(log, *ret.first().unwrap());
+    for i in 0..10000 {
+        log.insert(String::from("count"), LogValue::Number(Number::from(i)));
+        data_manager.insert(&log).unwrap();
+    }
+
+    let end_insert1 = PreciseTime::now();
+
+    println!("{} seconds for 10K inserts", start.to(end_insert1));
+
+    for i in 0..100 {
+        data_manager.get("count", &LogValue::Number(Number::from(i))).unwrap();
+    }
+
+    let end_get1 = PreciseTime::now();
+
+    println!("{} seconds for 100 gets", end_insert1.to(end_get1));
+
+    data_manager.flush();
+
+    let end_flush = PreciseTime::now();
+
+    println!("{} seconds for flush", end_get1.to(end_flush));
+
+    for i in 0..10000 {
+        log.insert(String::from("count"), LogValue::Number(Number::from(i))).unwrap();
+        data_manager.insert(&log);
+    }
+
+    let end_insert2 = PreciseTime::now();
+
+    println!("{} seconds for insert", end_flush.to(end_insert2));
+
+//    for i in 0..100 {
+//        data_manager.get("host", &LogValue::String(String::from("localhost"))).unwrap();
+//    }
+//
+//    let end_get2 = PreciseTime::now();
+//
+//    println!("{} seconds for 100 gets", end_insert2.to(end_get2));
 
 
 //    let mut hm = HashMap::new();
