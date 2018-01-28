@@ -8,6 +8,12 @@ extern crate rmp_serde as rmps;
 extern crate serde;
 extern crate simple_logger;
 extern crate twox_hash;
+extern crate bytes;
+extern crate futures;
+extern crate tokio_io;
+extern crate tokio_proto;
+extern crate tokio_service;
+extern crate tokio_core;
 
 use rmps::encode::to_vec;
 use rmps::decode::from_slice;
@@ -20,9 +26,8 @@ mod log_value;
 mod record_file;
 mod json;
 mod data_manager;
-mod rpc;
-
-extern crate tokio_proto;
+mod rpc_codec;
+mod rpc_server;
 
 use tokio_proto::TcpServer;
 
@@ -36,8 +41,8 @@ use ::json::json2map;
 use ::log_file::LogFile;
 use ::index_file::IndexFile;
 use ::data_manager::DataManager;
-use ::rpc::MessageProto;
-use ::rpc::MessageService;
+
+use ::rpc_server::run_server;
 
 extern crate time;
 use time::PreciseTime;
@@ -46,15 +51,17 @@ use serde_json::Number;
 fn main() {
     simple_logger::init().unwrap();  // this will panic on error
 
+    run_server();
+
     // Specify the localhost address
-    let addr = "0.0.0.0:12345".parse().unwrap();
-
-    // The builder requires a protocol and an address
-    let server = TcpServer::new(MessageProto, addr);
-
-    // We provide a way to *instantiate* the service for each new
-    // connection; here, we just immediately return a new instance.
-    server.serve(|| Ok(MessageService));
+//    let addr = "0.0.0.0:12345".parse().unwrap();
+//
+//    // The builder requires a protocol and an address
+//    let server = TcpServer::new(MessageProto, addr);
+//
+//    // We provide a way to *instantiate* the service for each new
+//    // connection; here, we just immediately return a new instance.
+//    server.serve(|| Ok(MessageService));
 
 
 
