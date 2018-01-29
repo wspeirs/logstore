@@ -10,6 +10,7 @@ extern crate simple_logger;
 extern crate twox_hash;
 extern crate bytes;
 extern crate futures;
+extern crate futures_cpupool;
 extern crate tokio_io;
 extern crate tokio_proto;
 extern crate tokio_service;
@@ -53,21 +54,6 @@ fn main() {
 
     run_server();
 
-    // Specify the localhost address
-//    let addr = "0.0.0.0:12345".parse().unwrap();
-//
-//    // The builder requires a protocol and an address
-//    let server = TcpServer::new(MessageProto, addr);
-//
-//    // We provide a way to *instantiate* the service for each new
-//    // connection; here, we just immediately return a new instance.
-//    server.serve(|| Ok(MessageService));
-
-
-
-
-
-
 
 //    let mut data_manager = DataManager::new(Path::new("/tmp")).unwrap();
 //
@@ -89,7 +75,7 @@ fn main() {
 //
 //    let start = PreciseTime::now();
 //
-//    for i in 0..10000 {
+//    for i in 0..10 {
 //        log.insert(String::from("count"), LogValue::Number(Number::from(i)));
 //        data_manager.insert(&log).unwrap();
 //    }
