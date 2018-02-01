@@ -8,6 +8,8 @@ extern crate rmp_serde as rmps;
 extern crate serde;
 extern crate simple_logger;
 extern crate twox_hash;
+extern crate lru_cache;
+
 extern crate bytes;
 extern crate futures;
 extern crate futures_cpupool;
@@ -50,47 +52,54 @@ use time::PreciseTime;
 use serde_json::Number;
 
 fn main() {
-    simple_logger::init().unwrap();  // this will panic on error
+//    simple_logger::init().unwrap();  // this will panic on error
 
-    run_server();
+//    run_server();
 
 
-//    let mut data_manager = DataManager::new(Path::new("/tmp")).unwrap();
-//
-//    let json_str = json!({
-//        "time":"[11/Aug/2014:17:21:45 +0000]",
-//        "remoteIP":"127.0.0.1",
-//        "host":"localhost",
-//        "request":"/index.html",
-//        "query":"",
-//        "method":"GET",
-//        "status":"200",
-//        "userAgent":"ApacheBench/2.3",
-//        "referer":"-"
-//    });
-//
-//    let mut log = json2map(&json_str.to_string()).unwrap();
-//
-//    println!("Starting inserts...");
-//
-//    let start = PreciseTime::now();
-//
-//    for i in 0..10 {
-//        log.insert(String::from("count"), LogValue::Number(Number::from(i)));
-//        data_manager.insert(&log).unwrap();
-//    }
-//
-//    let end_insert1 = PreciseTime::now();
-//
-//    println!("{} seconds for 10K inserts", start.to(end_insert1));
-//
-//    for i in 0..100 {
+    let mut data_manager = DataManager::new(Path::new("/tmp")).unwrap();
+
+    let json_str = json!({
+        "time":"[11/Aug/2014:17:21:45 +0000]",
+        "remoteIP":"127.0.0.1",
+        "host":"localhost",
+        "request":"/index.html",
+        "query":"",
+        "method":"GET",
+        "status":"200",
+        "userAgent":"ApacheBench/2.3",
+        "referer":"-"
+    });
+
+    let mut log = json2map(&json_str.to_string()).unwrap();
+
+    println!("Starting inserts...");
+
+    let start = PreciseTime::now();
+
+    for i in 0..100000 {
+        log.insert(String::from("count"), LogValue::Number(Number::from(i)));
+        data_manager.insert(&log).unwrap();
+    }
+
+    let end_insert1 = PreciseTime::now();
+
+    println!("{} for 10K inserts", start.to(end_insert1));
+
+    for i in 0..100 {
+        let start = PreciseTime::now();
+
+        data_manager.get("host", &LogValue::String(String::from("localhost"))).unwrap();
 //        data_manager.get("count", &LogValue::Number(Number::from(i))).unwrap();
-//    }
-//
-//    let end_get1 = PreciseTime::now();
-//
-//    println!("{} seconds for 100 gets", end_insert1.to(end_get1));
+
+        let end = PreciseTime::now();
+
+        println!("{} time for 1 get", start.to(end));
+    }
+
+    let end_get1 = PreciseTime::now();
+
+    println!("{} for 100 gets", end_insert1.to(end_get1));
 //
 //    data_manager.flush();
 //
