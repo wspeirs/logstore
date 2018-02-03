@@ -17,6 +17,7 @@ simple_logger = "0.4.0"
 time = "0.1.39"
 twox-hash = "1.1.0"
 lru-cache = "0.1.1"
+positioned-io = "0.2.2"
 
 bytes = "0.4"
 futures = "0.1"
@@ -25,3 +26,6 @@ tokio-io = "0.1"
 tokio-core = "0.1"
 tokio-proto = "0.1"
 tokio-service = "0.1"
+
+[patch.crates-io]
+positioned-io = { path = "/home/wspeirs/src/positioned-io" }

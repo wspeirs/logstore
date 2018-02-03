@@ -1,9 +1,8 @@
-extern crate byteorder;
+use byteorder::{LE, ReadBytesExt, WriteBytesExt};
+use positioned_io::{ReadAt, ReadBytesExt as PositionedReadBytesExt };
 
-use self::byteorder::{LE, ReadBytesExt, WriteBytesExt};
 
 use std::cell::RefCell;
-use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write, Seek, SeekFrom, ErrorKind, Error as IOError};
 use std::path::PathBuf;
@@ -55,7 +54,7 @@ fn rec_to_string(size: u32, rec: &[u8]) -> String {
 }
 
 impl RecordFile {
-    pub fn new(file_path: &PathBuf, header: &[u8]) -> Result<RecordFile, Box<Error>> {
+    pub fn new(file_path: &PathBuf, header: &[u8]) -> Result<RecordFile, IOError> {
         debug!("Attempting to open file: {}", file_path.display());
 
         let mut fd = OpenOptions::new().read(true).write(true).create(true).open(&file_path)?;
@@ -76,7 +75,7 @@ impl RecordFile {
             fd.read_exact(&mut header_buff)?;
 
             if header != header_buff.as_slice() {
-                return Err(Box::new(IOError::new(ErrorKind::InvalidData, format!("Invalid file header for: {}", file_path.display()))));
+                return Err(IOError::new(ErrorKind::InvalidData, format!("Invalid file header for: {}", file_path.display())));
             }
 
             record_count = fd.read_u32::<LE>()?;
@@ -98,7 +97,7 @@ impl RecordFile {
 
     /// Appends a record to the end of the file
     /// Returns the location where the record was written
-    pub fn append(&mut self, record: &[u8]) -> Result<u64, Box<Error>> {
+    pub fn append(&mut self, record: &[u8]) -> Result<u64, IOError> {
         let rec_loc = self.fd.seek(SeekFrom::Start(self.end_of_file))?;
         let rec_size = record.len();
 
@@ -116,13 +115,18 @@ impl RecordFile {
     }
 
     /// Read a record from a given offset
-    pub fn read_at(&mut self, file_offset: u64) -> Result<Vec<u8>, Box<Error>> {
-        self.fd.seek(SeekFrom::Start(file_offset))?;
+    pub fn read_at(&mut self, file_offset: u64) -> Result<Vec<u8>, IOError> {
+//        self.fd.seek(SeekFrom::Start(file_offset))?;
+//
+//        let rec_size = self.fd.read_u32::<LE>()?;
+//        let mut rec_buff = vec![0; rec_size as usize];
+//
+//        self.fd.read_exact(&mut rec_buff)?;
 
-        let rec_size = self.fd.read_u32::<LE>()?;
+        let rec_size = self.fd.read_u32_at::<LE>(file_offset)?;
         let mut rec_buff = vec![0; rec_size as usize];
 
-        self.fd.read_exact(&mut rec_buff)?;
+        self.fd.read_exact_at(file_offset+4, &mut rec_buff)?;
 
         debug!("READ RECORD FROM {}: {}", file_offset, rec_to_string(rec_size as u32, &rec_buff));
 

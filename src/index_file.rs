@@ -9,16 +9,16 @@ use rmps::decode::{from_slice, from_read};
 //use self::byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use self::multimap::MultiMap;
 
-use std::error::Error;
 use std::collections::HashMap;
 use std::fs::{remove_file, rename};
 use std::path::{Path, PathBuf};
+use std::io::{Write, Seek, SeekFrom};
 use itertools::Itertools;
 use itertools::EitherOrBoth::{Left, Right, Both};
 
 use ::log_value::LogValue;
 use ::record_file::{RecordFile, buf2string};
-use std::io::{Write, Seek, SeekFrom};
+use ::record_error::RecordError;
 
 //const FILE_HEADER: &[u8; 12] = b"LOGINDEX\x01\x00\x00\x00";
 const FILE_HEADER: &[u8; 12] = b"LOGINDEX\x01XXX";
@@ -43,7 +43,7 @@ pub struct IndexFile {
 }
 
 impl IndexFile  {
-    pub fn new(dir_path: &Path, index_name: &str) -> Result<IndexFile, Box<Error>> {
+    pub fn new(dir_path: &Path, index_name: &str) -> Result<IndexFile, RecordError> {
         let file_path = dir_path.join(index_name.to_owned() + ".index");
         let mut rec_file = RecordFile::new(&file_path, FILE_HEADER)?;
 
@@ -75,7 +75,7 @@ impl IndexFile  {
     }
 
     #[allow(resolve_trait_on_defaulted_unit)]
-    pub fn get(&mut self, value: &LogValue) -> Result<Vec<u64>, Box<Error>> {
+    pub fn get(&mut self, value: &LogValue) -> Result<Vec<u64>, RecordError> {
         let mut in_memory = match self.mem_index.get_vec(value) {
             Some(v) => v.clone(),
             None => Vec::<u64>::new()
@@ -107,7 +107,7 @@ impl IndexFile  {
     }
 
     /// Flushes the in-memory index to disk
-    pub fn flush(&mut self) -> Result<(), Box<Error>> {
+    pub fn flush(&mut self) -> Result<(), RecordError> {
         if self.mem_index.len() == 0 {
             return Ok( () );
         }
@@ -119,7 +119,7 @@ impl IndexFile  {
 
         if let Err(e) = tmp_rec_file_res {
             error!("Could not create temporary index file: {}", e.to_string());
-            return Err(e);
+            return Err(RecordError::from(e));
         }
 
         let mut tmp_rec_file = tmp_rec_file_res?;

@@ -2,12 +2,12 @@ use rmps::encode::to_vec;
 use rmps::decode::from_slice;
 use lru_cache::LruCache;
 
-use std::error::Error;
 use std::collections::HashMap;
 use std::path::Path;
 
 use ::record_file::{RecordFile, RecordFileIterator, BAD_COUNT};
 use ::log_value::LogValue;
+use ::record_error::RecordError;
 
 const FILE_HEADER: &[u8; 12] = b"LOGSTORE\x01\x00\x00\x00";
 
@@ -19,7 +19,7 @@ pub struct LogFile {
 
 impl LogFile {
     /// Creates a new LogFile
-    pub fn new(dir_path: &Path) -> Result<LogFile, Box<Error>> {
+    pub fn new(dir_path: &Path) -> Result<LogFile, RecordError> {
         let file_path = dir_path.join("logs.data");
 
         let rec_file = RecordFile::new(&file_path, FILE_HEADER)?;
@@ -42,7 +42,7 @@ impl LogFile {
     ///
     /// Checks the file attempting to read each JSON message, and re-establish the count
     ///
-    pub fn check(&mut self) -> Result<u32, Box<Error>> {
+    pub fn check(&mut self) -> Result<u32, RecordError> {
         let mut count = 0;
 
         for rec in (&mut self.rec_file).into_iter() {
@@ -54,7 +54,7 @@ impl LogFile {
     }
 
     /// Adds a log to the file, returning the location in the file
-    pub fn add(&mut self, log: &HashMap<String, LogValue>) -> Result<u64, Box<Error>> {
+    pub fn add(&mut self, log: &HashMap<String, LogValue>) -> Result<u64, RecordError> {
         let buff = to_vec(log)?;
 
         // write the record file
@@ -63,13 +63,13 @@ impl LogFile {
         return Ok(loc);
     }
 
-    pub fn get(&mut self, location: u64) -> Result<HashMap<String, LogValue>, Box<Error>> {
+    pub fn get(&mut self, location: u64) -> Result<HashMap<String, LogValue>, RecordError> {
         if let Some(v) = self.cache.get_mut(&location) {
            return Ok(v.clone());
         }
 
         match from_slice::<HashMap<String, LogValue>>(self.rec_file.read_at(location)?.as_slice()) {
-            Err(e) => Err(Box::new(e)),
+            Err(e) => Err(RecordError::from(e)),
             Ok(v) => { self.cache.insert(location, v.clone()); return Ok(v); }
         }
     }
