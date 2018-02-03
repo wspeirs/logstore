@@ -87,3 +87,69 @@ impl DataManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use time::PreciseTime;
+    use serde_json::Number;
+    use std::path::Path;
+
+    use ::data_manager::DataManager;
+    use ::log_value::LogValue;
+    use ::json::json2map;
+
+    fn do_inserts(dm: &mut DataManager, num_logs: usize) {
+        let json_str = json!({
+            "time":"[11/Aug/2014:17:21:45 +0000]",
+            "remoteIP":"127.0.0.1",
+            "host":"localhost",
+            "request":"/index.html",
+            "query":"",
+            "method":"GET",
+            "status":"200",
+            "userAgent":"ApacheBench/2.3",
+            "referer":"-"
+        });
+
+        let mut log = json2map(&json_str.to_string()).unwrap();
+
+        println!("Starting inserts...");
+
+        let start = PreciseTime::now();
+
+        for i in 0..num_logs {
+            log.insert(String::from("count"), LogValue::Number(Number::from(i)));
+            dm.insert(&log).unwrap();
+        }
+
+        let end_insert1 = PreciseTime::now();
+
+        println!("{} for {} inserts", start.to(end_insert1), num_logs);
+    }
+
+    #[test]
+    fn test_get_same() {
+        let mut data_manager = DataManager::new(Path::new("/tmp")).unwrap();
+
+        do_inserts(&mut data_manager, 100000);
+
+        let start = PreciseTime::now();
+
+        for i in 0..100 {
+            let start = PreciseTime::now();
+
+            data_manager.get("host", &LogValue::String(String::from("localhost"))).unwrap();
+//        data_manager.get("count", &LogValue::Number(Number::from(i))).unwrap();
+
+            let end = PreciseTime::now();
+
+            println!("{} time for 1 get", start.to(end));
+        }
+
+        let end = PreciseTime::now();
+
+        println!("{} for 100 gets", start.to(end));
+
+    }
+
+}
