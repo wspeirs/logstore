@@ -77,35 +77,6 @@ impl DataManager {
         Ok( () )
     }
 
-//    pub fn get_futures(&mut self, key: &str, value: &LogValue) -> Result<Vec<HashMap<String, LogValue>>, RecordError> {
-//        // get the locations from the index, or return if the key is not found
-//        let locs = match self.indices.get_mut(key) {
-//            Some(i) => i.get(value)?,
-//            None => return Ok(Vec::new())
-//        };
-//
-//        // create the vector to return all the log entires
-//        let mut ret = Vec::<HashMap<String, LogValue>>::with_capacity(locs.len());
-//        let mut future_res = Vec::<CpuFuture<_, _>>::with_capacity(locs.len());
-//
-//
-//        // go through the record file fetching the records
-//        for loc in locs {
-//            let f = self.cpu_pool.spawn_fn(move || {
-//                self.log_file.get(loc)
-//            });
-//
-//            future_res.push(f);
-//        }
-//
-//        for f in future_res {
-//            let res = f.wait()?;
-//            ret.push(res);
-//        }
-//
-//        Ok(ret)
-//    }
-
     pub fn get(&mut self, key: &str, value: &LogValue) -> Result<Vec<HashMap<String, LogValue>>, RecordError> {
         // get the locations from the index, or return if the key is not found
         let locs = match self.indices.get_mut(key) {
@@ -116,31 +87,25 @@ impl DataManager {
         // create the vector to return all the log entires
         let self_rc = Arc::new(Mutex::new(self));
 
+        let ret = &Mutex::new(Vec::<HashMap<String, LogValue>>::with_capacity(locs.len()));
         let mut scoped_pool = Pool::new(32);
 
         // go through the record file fetching the records
-        let ret_vec = scoped_pool.scoped(|scope| {
-
-            let ret = Arc::new(Mutex::new(Vec::<HashMap<String, LogValue>>::with_capacity(locs.len())));
+        scoped_pool.scoped(|scope| {
 
             for loc in locs {
                 let self_clone = self_rc.clone();
-                let ret_clone = ret.clone();
 
                 scope.execute( move || {
                     match self_clone.lock().unwrap().log_file.get(loc) {
                         Err(e) => error!("Error reading record at {}: {}", loc, e.to_string()),
-                        Ok(v) => ret_clone.lock().unwrap().push(v)
+                        Ok(v) => ret.lock().unwrap().push(v)
                     }
                 });
             }
-
-            return ret;
         });
 
-        let r = ret_vec.into_inner().unwrap();
-
-        Ok(r)
+        Ok(ret.into_inner().unwrap())
     }
 
     pub fn flush(&mut self) -> () {
