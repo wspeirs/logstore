@@ -7,11 +7,21 @@
 use std::io;
 use rmps::{encode, decode};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum RecordError {
     Io(io::Error),
     Encode(encode::Error),
     Decode(decode::Error)
+}
+
+impl RecordError {
+    pub fn to_string(&self) -> String {
+        match self {
+            &RecordError::Io(ref e) => e.to_string(),
+            &RecordError::Encode(ref e) => e.to_string(),
+            &RecordError::Decode(ref e) => e.to_string()
+        }
+    }
 }
 
 impl From<io::Error> for RecordError {
