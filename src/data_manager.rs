@@ -19,7 +19,8 @@ pub struct DataManager {
     log_file: LogFile,
     indices: HashMap<String, IndexFile>,
     dir_path: PathBuf,
-    thread_pool: Pool
+    scoped_pool: Pool,
+    cpu_pool: CpuPool
 }
 
 impl DataManager {
@@ -51,9 +52,10 @@ impl DataManager {
             }
         }
 
-        let thread_pool = Pool::new(32);
+        let scoped_pool = Pool::new(32);
+        let cpu_pool = CpuPool::new(32);
 
-        Ok( DataManager{ log_file, indices, dir_path: PathBuf::from(dir_path), thread_pool })
+        Ok( DataManager{ log_file, indices, dir_path: PathBuf::from(dir_path), scoped_pool, cpu_pool })
     }
 
     pub fn insert(&mut self, log: &HashMap<String, LogValue>) -> Result<(), RecordError> {
@@ -74,6 +76,35 @@ impl DataManager {
         Ok( () )
     }
 
+    pub fn get_futures(&mut self, key: &str, value: &LogValue) -> Result<Vec<HashMap<String, LogValue>>, RecordError> {
+        // get the locations from the index, or return if the key is not found
+        let locs = match self.indices.get_mut(key) {
+            Some(i) => i.get(value)?,
+            None => return Ok(Vec::new())
+        };
+
+        // create the vector to return all the log entires
+        let mut ret = Vec::<HashMap<String, LogValue>>::with_capacity(locs.len());
+        let mut future_res = Vec::<CpuFuture<_, _>>::with_capacity(locs.len());
+
+
+        // go through the record file fetching the records
+        for loc in locs {
+            let f = self.cpu_pool.spawn_fn(move || {
+                self.log_file.get(loc)
+            });
+
+            future_res.push(f);
+        }
+
+        for f in future_res {
+            let res = f.wait()?;
+            ret.push(res);
+        }
+
+        Ok(ret)
+    }
+
     pub fn get(&mut self, key: &str, value: &LogValue) -> Result<Vec<HashMap<String, LogValue>>, RecordError> {
         // get the locations from the index, or return if the key is not found
         let locs = match self.indices.get_mut(key) {
@@ -83,11 +114,10 @@ impl DataManager {
 
         // create the vector to return all the log entires
         let mut ret = Vec::<HashMap<String, LogValue>>::with_capacity(locs.len());
-//        let mut future_res = Vec::<CpuFuture<_, _>>::with_capacity(locs.len());
 
 
         // go through the record file fetching the records
-        self.thread_pool.scoped(|scope| {
+        self.scoped_pool.scoped(|scope| {
             let self_rc = Arc::new(Mutex::new(self));
 
             for loc in locs {
@@ -101,11 +131,6 @@ impl DataManager {
                 });
             }
         });
-
-//        for f in future_res {
-//            let res = f.wait()?;
-//            ret.push(res);
-//        }
 
         Ok(ret)
     }
