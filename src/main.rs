@@ -9,6 +9,7 @@ extern crate serde;
 extern crate simple_logger;
 extern crate twox_hash;
 extern crate lru_cache;
+extern crate positioned_io;
 
 extern crate bytes;
 extern crate futures;
@@ -27,6 +28,7 @@ mod log_file;
 mod index_file;
 mod log_value;
 mod record_file;
+mod record_error;
 mod json;
 mod data_manager;
 mod rpc_codec;
