@@ -10,6 +10,7 @@ extern crate simple_logger;
 extern crate twox_hash;
 extern crate lru_cache;
 extern crate positioned_io;
+extern crate scoped_threadpool;
 
 extern crate bytes;
 extern crate futures;
@@ -28,11 +29,11 @@ mod log_file;
 mod index_file;
 mod log_value;
 mod record_file;
-mod record_error;
 mod json;
 mod data_manager;
 mod rpc_codec;
 mod rpc_server;
+mod record_error;
 
 use tokio_proto::TcpServer;
 

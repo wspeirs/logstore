@@ -2,6 +2,13 @@ use std::collections::HashMap;
 use std::io::{Error as IOError, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::fs::read_dir;
+use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use futures_cpupool::{CpuPool, CpuFuture};
+use futures::Future;
+use scoped_threadpool::Pool;
 
 use ::log_file::LogFile;
 use ::index_file::IndexFile;
@@ -11,7 +18,8 @@ use ::record_error::RecordError;
 pub struct DataManager {
     log_file: LogFile,
     indices: HashMap<String, IndexFile>,
-    dir_path: PathBuf
+    dir_path: PathBuf,
+    thread_pool: Pool
 }
 
 impl DataManager {
@@ -20,6 +28,7 @@ impl DataManager {
         // make sure we're passed a directory
         if !dir_path.is_dir() {
             let io_err = IOError::new(ErrorKind::InvalidInput, format!("{} is not a directory", dir_path.display()));
+
             return Err(RecordError::from(io_err));
         }
 
@@ -29,8 +38,8 @@ impl DataManager {
         info!("Loading files from: {}", dir_path.display());
 
         // look for any index files in this directory
-        for entry in read_dir(dir_path).map_err(|e| { RecordError::from(e) })? {
-            let file = entry.map_err(|e| { RecordError::from(e) })?;
+        for entry in read_dir(dir_path).map_err(|e| RecordError::from(e))? {
+            let file = entry.map_err(|e| RecordError::from(e))?;
             let path = file.path();
 
             if path.is_file() && path.extension().is_some() && path.extension().unwrap() == "index" {
@@ -42,7 +51,9 @@ impl DataManager {
             }
         }
 
-        Ok( DataManager{ log_file, indices, dir_path: PathBuf::from(dir_path) })
+        let thread_pool = Pool::new(32);
+
+        Ok( DataManager{ log_file, indices, dir_path: PathBuf::from(dir_path), thread_pool })
     }
 
     pub fn insert(&mut self, log: &HashMap<String, LogValue>) -> Result<(), RecordError> {
@@ -72,11 +83,29 @@ impl DataManager {
 
         // create the vector to return all the log entires
         let mut ret = Vec::<HashMap<String, LogValue>>::with_capacity(locs.len());
+//        let mut future_res = Vec::<CpuFuture<_, _>>::with_capacity(locs.len());
+
 
         // go through the record file fetching the records
-        for loc in locs {
-            ret.push(self.log_file.get(loc)?);
-        }
+        self.thread_pool.scoped(|scope| {
+            let self_rc = Arc::new(Mutex::new(self));
+
+            for loc in locs {
+                let self_clone = self_rc.clone();
+
+                scope.execute( || {
+                    match self_clone.lock().unwrap().log_file.get(loc) {
+                        Err(e) => error!("Error reading record at {}: {}", loc, e.to_string()),
+                        Ok(v) => ret.push(v)
+                    }
+                });
+            }
+        });
+
+//        for f in future_res {
+//            let res = f.wait()?;
+//            ret.push(res);
+//        }
 
         Ok(ret)
     }

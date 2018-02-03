@@ -19,6 +19,8 @@ twox-hash = "1.1.0"
 lru-cache = "0.1.1"
 positioned-io = "0.2.2"
 
+scoped_threadpool = "0.1.8"
+
 bytes = "0.4"
 futures = "0.1"
 futures-cpupool = "0.1"
