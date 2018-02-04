@@ -87,23 +87,27 @@ impl DataManager {
         // create the vector to return all the log entires
         let self_rc = Arc::new(Mutex::new(self));
 
-        let ret = &Mutex::new(Vec::<HashMap<String, LogValue>>::with_capacity(locs.len()));
-        let mut scoped_pool = Pool::new(32);
+        let ret = Mutex::new(Vec::<HashMap<String, LogValue>>::with_capacity(locs.len()));
+        {
+            let ret_ref = &ret;
+            let mut scoped_pool = Pool::new(32);
 
-        // go through the record file fetching the records
-        scoped_pool.scoped(|scope| {
+            // go through the record file fetching the records
+            scoped_pool.scoped(|scope| {
+                for loc in locs {
+                    let self_clone = self_rc.clone();
 
-            for loc in locs {
-                let self_clone = self_rc.clone();
+                    scope.execute(move || {
+                        let mut self_owned = self_clone.lock().unwrap();
 
-                scope.execute( move || {
-                    match self_clone.lock().unwrap().log_file.get(loc) {
-                        Err(e) => error!("Error reading record at {}: {}", loc, e.to_string()),
-                        Ok(v) => ret.lock().unwrap().push(v)
-                    }
-                });
-            }
-        });
+                        match self_owned.log_file.get(loc) {
+                            Err(e) => error!("Error reading record at {}: {}", loc, e.to_string()),
+                            Ok(v) => ret_ref.lock().unwrap().push(v)
+                        }
+                    });
+                }
+            });
+        }
 
         Ok(ret.into_inner().unwrap())
     }
