@@ -11,6 +11,7 @@ extern crate twox_hash;
 extern crate lru_cache;
 extern crate positioned_io;
 extern crate scoped_threadpool;
+extern crate rayon;
 
 extern crate bytes;
 extern crate futures;

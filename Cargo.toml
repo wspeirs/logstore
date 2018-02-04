@@ -20,6 +20,7 @@ lru-cache = "0.1.1"
 positioned-io = "0.2.2"
 
 scoped_threadpool = "0.1.8"
+rayon = "0.9.0"
 
 bytes = "0.4"
 futures = "0.1"

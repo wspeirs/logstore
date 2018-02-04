@@ -115,7 +115,7 @@ impl RecordFile {
     }
 
     /// Read a record from a given offset
-    pub fn read_at(&mut self, file_offset: u64) -> Result<Vec<u8>, IOError> {
+    pub fn read_at(&self, file_offset: u64) -> Result<Vec<u8>, IOError> {
 //        self.fd.seek(SeekFrom::Start(file_offset))?;
 //
 //        let rec_size = self.fd.read_u32::<LE>()?;

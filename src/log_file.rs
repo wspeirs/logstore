@@ -4,6 +4,7 @@ use lru_cache::LruCache;
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::RwLock;
 
 use ::record_file::{RecordFile, RecordFileIterator, BAD_COUNT};
 use ::log_value::LogValue;
@@ -63,14 +64,14 @@ impl LogFile {
         return Ok(loc);
     }
 
-    pub fn get(&mut self, location: u64) -> Result<HashMap<String, LogValue>, RecordError> {
-        if let Some(v) = self.cache.get_mut(&location) {
-           return Ok(v.clone());
-        }
+    pub fn get(&self, location: u64) -> Result<HashMap<String, LogValue>, RecordError> {
+//        if let Some(v) = self.cache.get_mut(&location) {
+//           return Ok(v.clone());
+//        }
 
         match from_slice::<HashMap<String, LogValue>>(self.rec_file.read_at(location)?.as_slice()) {
             Err(e) => Err(RecordError::from(e)),
-            Ok(v) => { self.cache.insert(location, v.clone()); return Ok(v); }
+            Ok(v) => { /* self.cache.write().unwrap().insert(location, v.clone()); */ return Ok(v); }
         }
     }
 
