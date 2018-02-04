@@ -31,8 +31,8 @@ mod record_file;
 mod record_error;
 mod json;
 mod data_manager;
-//mod rpc_codec;
-//mod rpc_server;
+mod rpc_codec;
+mod rpc_server;
 
 use tokio_proto::TcpServer;
 

@@ -11,7 +11,7 @@ use tokio_proto::pipeline::{ServerProto, ClientProto};
 use tokio_proto::{TcpServer, TcpClient};
 use tokio_service::Service;
 use futures::{Stream, Sink, Future, future};
-use futures_cpupool::CpuPool;
+use futures::sync::mpsc;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::codec::Framed;
 use tokio_core::reactor::Core;
@@ -97,22 +97,25 @@ pub fn run_server() {
     server.serve(move || Ok(RPCService::new(dm.clone())));
 }
 
-pub fn run_client() {
+pub fn run_client(rx: mpsc::Receiver<String>) {
     let addr = "127.0.0.1:12345".parse().unwrap();
     let mut core = Core::new().unwrap();
 
     let connection = TcpClient::new(MessageProto).connect(&addr, &core.handle());
 
-    let client = connection.and_then(|client| {
+    let run = connection.and_then(|client| {
         let req = RequestMessage::Get(String::from("method"), LogValue::String(String::from("GET")));
 
-        client.call(req).and_then(move |response| {
-            println!("RES: {:?}", response);
-            Ok( () )
-        })
+        rx.and_then(|msg| {
+            println!("MSG: {}", msg);
+            client.call(req).and_then(move |response| {
+                println!("RES: {:?}", response);
+                Ok( () )
+            });
+        });
     });
 
-    core.run(client).unwrap();
+    core.run(run).unwrap();
 }
 
 
@@ -123,6 +126,9 @@ mod tests {
     #[test]
     fn test() {
         println!("Running client...");
-        run_client();
+
+        let (tx, rx) = mpsc::channel(2);
+
+        run_client(rx);
     }
 }
