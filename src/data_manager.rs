@@ -2,16 +2,10 @@ use std::collections::HashMap;
 use std::io::{Error as IOError, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::fs::read_dir;
-//use std::sync::{Arc, Mutex};
-//use std::cell::RefCell;
-//use std::rc::Rc;
-//use std::ops::Deref;
-
-//use futures_cpupool::{CpuPool, CpuFuture};
-//use futures::Future;
-//use scoped_threadpool::Pool;
+use std::cell::RefCell;
+use lru_cache::LruCache;
 use rayon::prelude::*;
-
+use rayon::iter::Map;
 
 use ::log_file::LogFile;
 use ::index_file::IndexFile;
@@ -22,8 +16,7 @@ pub struct DataManager {
     log_file: LogFile,
     indices: HashMap<String, IndexFile>,
     dir_path: PathBuf,
-//    scoped_pool: Pool,
-//    cpu_pool: CpuPool
+    cache: LruCache<u64, HashMap<String, LogValue>>
 }
 
 impl DataManager {
@@ -55,12 +48,9 @@ impl DataManager {
             }
         }
 
-//        let scoped_pool = Pool::new(32);
-//        let cpu_pool = CpuPool::new(32);
-//
-//        Ok( DataManager{ log_file, indices, dir_path: PathBuf::from(dir_path), scoped_pool, cpu_pool })
+        let cache = LruCache::new(100001);
 
-        Ok( DataManager{ log_file, indices, dir_path: PathBuf::from(dir_path) })
+        Ok( DataManager{ log_file, indices, dir_path: PathBuf::from(dir_path), cache })
     }
 
     pub fn insert(&mut self, log: &HashMap<String, LogValue>) -> Result<(), RecordError> {
@@ -81,21 +71,44 @@ impl DataManager {
         Ok( () )
     }
 
-    pub fn get_parallel(&mut self, key: &str, value: &LogValue) -> Result<Vec<HashMap<String, LogValue>>, RecordError> {
+    pub fn get(&mut self, key: &str, value: &LogValue) -> Result<Vec<HashMap<String, LogValue>>, RecordError> {
         // get the locations from the index, or return if the key is not found
-        let locs = match self.indices.get_mut(key) {
+        let locs: Vec<u64> = match self.indices.get_mut(key) {
             Some(i) => i.get(value)?,
             None => return Ok(Vec::new())
         };
 
-        let ret = locs.into_par_iter().map(|loc| {
-            self.log_file.get(loc).unwrap()
+        let cache = RefCell::new(&mut self.cache);
+        let log_file = &self.log_file;
+
+        // split into 2 iterators: those in the cache, those we need to read from disk
+        let (in_mem, on_disk): (Vec<_>, Vec<_>) = locs.into_iter().partition(|loc| {
+            cache.borrow_mut().contains_key(loc)
+        });
+
+        // fetch the on-disk ones
+        let ret :Vec<(u64, HashMap<String, LogValue>)>= on_disk.into_par_iter().map(|loc| {
+            (loc, log_file.get(loc).unwrap())
         }).collect();
 
-        Ok(ret)
+        println!("ON DISK: {}", ret.len());
+
+        // add them to our cache and strip out the location
+        let it1 = ret.into_iter().map(|(loc, log)| {
+            cache.borrow_mut().insert(loc, log.clone());
+            log
+        });
+
+        // get our cached ones
+        let it2 = in_mem.into_iter().map(|loc| {
+            cache.borrow_mut().get_mut(&loc).unwrap().clone()
+        });
+
+
+        Ok(it2.chain(it1).collect::<Vec<_>>())
     }
 
-    pub fn get(&mut self, key: &str, value: &LogValue) -> Result<Vec<HashMap<String, LogValue>>, RecordError> {
+    pub fn get_serial(&mut self, key: &str, value: &LogValue) -> Result<Vec<HashMap<String, LogValue>>, RecordError> {
         // get the locations from the index, or return if the key is not found
         let locs = match self.indices.get_mut(key) {
             Some(i) => i.get(value)?,
@@ -108,41 +121,6 @@ impl DataManager {
 
         Ok(ret)
     }
-
-//    pub fn get(&mut self, key: &str, value: &LogValue) -> Result<Vec<HashMap<String, LogValue>>, RecordError> {
-//        // get the locations from the index, or return if the key is not found
-//        let locs = match self.indices.get_mut(key) {
-//            Some(i) => i.get(value)?,
-//            None => return Ok(Vec::new())
-//        };
-//
-//        // create the vector to return all the log entires
-//        let self_rc = Arc::new(Mutex::new(self));
-//
-//        let ret = Mutex::new(Vec::<HashMap<String, LogValue>>::with_capacity(locs.len()));
-//        {
-//            let ret_ref = &ret;
-//            let mut scoped_pool = Pool::new(32);
-//
-//            // go through the record file fetching the records
-//            scoped_pool.scoped(|scope| {
-//                for loc in locs {
-//                    let self_clone = self_rc.clone();
-//
-//                    scope.execute(move || {
-//                        let mut self_owned = self_clone.lock().unwrap();
-//
-//                        match self_owned.log_file.get(loc) {
-//                            Err(e) => error!("Error reading record at {}: {}", loc, e.to_string()),
-//                            Ok(v) => ret_ref.lock().unwrap().push(v)
-//                        }
-//                    });
-//                }
-//            });
-//        }
-//
-//        Ok(ret.into_inner().unwrap())
-//    }
 
     pub fn flush(&mut self) -> () {
         for val in self.indices.values_mut() {
@@ -157,6 +135,7 @@ mod tests {
     use time::PreciseTime;
     use serde_json::Number;
     use std::path::Path;
+    use rayon::{Configuration, initialize};
 
     use ::data_manager::DataManager;
     use ::log_value::LogValue;
@@ -193,6 +172,8 @@ mod tests {
 
     #[test]
     fn test_get_parallel() {
+//        initialize(Configuration::new().num_threads(32));
+
         let mut data_manager = DataManager::new(Path::new("/tmp")).unwrap();
 
         do_inserts(&mut data_manager, 100000);
@@ -202,7 +183,7 @@ mod tests {
         for i in 0..5 {
             let start = PreciseTime::now();
 
-            data_manager.get_parallel("host", &LogValue::String(String::from("localhost"))).unwrap();
+            data_manager.get("host", &LogValue::String(String::from("localhost"))).unwrap();
 
             let end = PreciseTime::now();
 
