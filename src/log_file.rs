@@ -1,9 +1,9 @@
 use rmps::encode::to_vec;
 use rmps::decode::from_slice;
-use lru_cache::LruCache;
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::vec::IntoIter;
 
 use ::record_file::{RecordFile, RecordFileIterator, BAD_COUNT};
 use ::log_value::LogValue;
@@ -14,7 +14,6 @@ const FILE_HEADER: &[u8; 12] = b"LOGSTORE\x01\x00\x00\x00";
 /// The log file that holds all of the log messages
 pub struct LogFile {
     rec_file: RecordFile,
-    cache: LruCache<u64, HashMap<String, LogValue>>
 }
 
 impl LogFile {
@@ -23,9 +22,8 @@ impl LogFile {
         let file_path = dir_path.join("logs.data");
 
         let rec_file = RecordFile::new(&file_path, FILE_HEADER)?;
-        let cache = LruCache::new(100001);
 
-        let mut ret = LogFile{ rec_file, cache };
+        let mut ret = LogFile{ rec_file };
 
         if ret.rec_file.record_count == BAD_COUNT {
             error!("{} not properly closed, attempting to check file", file_path.display());
@@ -63,14 +61,10 @@ impl LogFile {
         return Ok(loc);
     }
 
-    pub fn get(&mut self, location: u64) -> Result<HashMap<String, LogValue>, RecordError> {
-        if let Some(v) = self.cache.get_mut(&location) {
-           return Ok(v.clone());
-        }
-
+    pub fn get(&self, location: u64) -> Result<HashMap<String, LogValue>, RecordError> {
         match from_slice::<HashMap<String, LogValue>>(self.rec_file.read_at(location)?.as_slice()) {
             Err(e) => Err(RecordError::from(e)),
-            Ok(v) => { self.cache.insert(location, v.clone()); return Ok(v); }
+            Ok(v) => Ok(v)
         }
     }
 
