@@ -103,17 +103,23 @@ pub fn run_client(rx: mpsc::Receiver<String>) {
 
     let connection = TcpClient::new(MessageProto).connect(&addr, &core.handle());
 
-    let run = connection.and_then(|client| {
-        let req = RequestMessage::Get(String::from("method"), LogValue::String(String::from("GET")));
+    let run =
+        connection.and_then(move |client| {
+            println!("IN HERE");
+            rx.map_err(|e| unreachable!("rx can't fail"))
+                .and_then(move |msg| {
+                    println!("MSG: {}", msg);
+                    let req = RequestMessage::Get(String::from("method"), LogValue::String(String::from("GET")));
 
-        rx.and_then(|msg| {
-            println!("MSG: {}", msg);
-            client.call(req).and_then(move |response| {
-                println!("RES: {:?}", response);
+                    client.call(req).and_then(move |response| {
+                        println!("RES: {:?}", response);
+                        Ok(response)
+                    })
+                }).for_each(|rsp| {
+                println!("RSP : {:?}", rsp);
                 Ok( () )
-            });
+            })
         });
-    });
 
     core.run(run).unwrap();
 }
@@ -122,13 +128,23 @@ pub fn run_client(rx: mpsc::Receiver<String>) {
 #[cfg(test)]
 mod tests {
     use ::rpc_server::run_client;
+    use std::{thread, time};
+    use futures::sync::mpsc;
+    use futures::Sink;
+
 
     #[test]
     fn test() {
         println!("Running client...");
 
-        let (tx, rx) = mpsc::channel(2);
+        let (mut tx, rx) = mpsc::channel(2);
+
+        tx.start_send(String::from("test")).unwrap();
+        tx.poll_complete().unwrap();
+
+        println!("Calling run_client");
 
         run_client(rx);
+
     }
 }

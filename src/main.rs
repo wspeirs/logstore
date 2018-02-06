@@ -47,17 +47,16 @@ use ::log_file::LogFile;
 use ::index_file::IndexFile;
 use ::data_manager::DataManager;
 
-//use ::rpc_server::run_server;
+use ::rpc_server::run_server;
 
 extern crate time;
 use time::PreciseTime;
 use serde_json::Number;
 
 fn main() {
-//    simple_logger::init().unwrap();  // this will panic on error
+    simple_logger::init().unwrap();  // this will panic on error
 
-//    run_server();
-
+    run_server();
 
 }
 
