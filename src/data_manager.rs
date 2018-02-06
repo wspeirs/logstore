@@ -2,8 +2,6 @@ use std::collections::HashMap;
 use std::io::{Error as IOError, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::fs::read_dir;
-use std::cell::RefCell;
-use lru_cache::LruCache;
 use rayon::prelude::*;
 use rayon::iter::Map;
 
@@ -15,8 +13,7 @@ use ::record_error::RecordError;
 pub struct DataManager {
     log_file: LogFile,
     indices: HashMap<String, IndexFile>,
-    dir_path: PathBuf,
-    cache: LruCache<u64, HashMap<String, LogValue>>
+    dir_path: PathBuf
 }
 
 impl DataManager {
@@ -48,9 +45,7 @@ impl DataManager {
             }
         }
 
-        let cache = LruCache::new(100001);
-
-        Ok( DataManager{ log_file, indices, dir_path: PathBuf::from(dir_path), cache })
+        Ok( DataManager{ log_file, indices, dir_path: PathBuf::from(dir_path) })
     }
 
     pub fn insert(&mut self, log: &HashMap<String, LogValue>) -> Result<(), RecordError> {
@@ -78,34 +73,14 @@ impl DataManager {
             None => return Ok(Vec::new())
         };
 
-        let cache = RefCell::new(&mut self.cache);
         let log_file = &self.log_file;
 
-        // split into 2 iterators: those in the cache, those we need to read from disk
-        let (in_mem, on_disk): (Vec<_>, Vec<_>) = locs.into_iter().partition(|loc| {
-            cache.borrow_mut().contains_key(loc)
-        });
-
-        // fetch the on-disk ones
-        let ret :Vec<(u64, HashMap<String, LogValue>)>= on_disk.into_par_iter().map(|loc| {
-            (loc, log_file.get(loc).unwrap())
+        // fetch the records
+        let ret :Result<Vec<HashMap<String, LogValue>>, RecordError> = locs.into_par_iter().map(|loc| {
+            log_file.get(loc) //TODO: figure out how to throw error here
         }).collect();
 
-        println!("ON DISK: {}", ret.len());
-
-        // add them to our cache and strip out the location
-        let it1 = ret.into_iter().map(|(loc, log)| {
-            cache.borrow_mut().insert(loc, log.clone());
-            log
-        });
-
-        // get our cached ones
-        let it2 = in_mem.into_iter().map(|loc| {
-            cache.borrow_mut().get_mut(&loc).unwrap().clone()
-        });
-
-
-        Ok(it2.chain(it1).collect::<Vec<_>>())
+        ret
     }
 
     pub fn get_serial(&mut self, key: &str, value: &LogValue) -> Result<Vec<HashMap<String, LogValue>>, RecordError> {
