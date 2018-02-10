@@ -1,24 +1,24 @@
 #[macro_use] extern crate log;
-#[macro_use] extern crate serde_json;
 #[macro_use] extern crate serde_derive;
+#[macro_use] extern crate serde_json;
+
 extern crate base64;
+extern crate bytes;
 extern crate byteorder;
+extern crate futures;
+extern crate futures_cpupool;
+extern crate hyper;
 extern crate itertools;
 extern crate rmp_serde as rmps;
 extern crate serde;
 extern crate simple_logger;
 extern crate twox_hash;
-extern crate lru_cache;
 extern crate positioned_io;
 extern crate rayon;
-
-extern crate bytes;
-extern crate futures;
-extern crate futures_cpupool;
+extern crate tokio_core;
 extern crate tokio_io;
 extern crate tokio_proto;
 extern crate tokio_service;
-extern crate tokio_core;
 
 use rmps::encode::to_vec;
 use rmps::decode::from_slice;
@@ -34,6 +34,7 @@ mod data_manager;
 mod rpc_codec;
 mod rpc_server;
 mod record_error;
+mod http_server;
 
 use tokio_proto::TcpServer;
 
@@ -48,7 +49,8 @@ use ::log_file::LogFile;
 use ::index_file::IndexFile;
 use ::data_manager::DataManager;
 
-use ::rpc_server::run_server;
+//use ::rpc_server::run_server;
+use ::http_server::run_server;
 
 extern crate time;
 use time::PreciseTime;
