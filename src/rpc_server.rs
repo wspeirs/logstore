@@ -6,15 +6,14 @@ use std::sync::{Arc, Mutex};
 
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use bytes::BytesMut;
-use tokio_io::codec::{Encoder, Decoder};
-use tokio_proto::pipeline::{ServerProto, ClientProto};
+use tokio_core::reactor::{Handle, Core};
+use tokio_io::{AsyncRead, AsyncWrite};
+use tokio_io::codec::{Encoder, Decoder, Framed};
 use tokio_proto::{TcpServer, TcpClient};
+use tokio_proto::pipeline::{ServerProto, ClientProto};
 use tokio_service::Service;
 use futures::{Stream, Sink, Future, future};
 use futures::sync::mpsc;
-use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::Framed;
-use tokio_core::reactor::Core;
 use rmps::decode::from_read;
 use rmps::encode::to_vec;
 
@@ -97,11 +96,11 @@ pub fn run_server() {
     server.serve(move || Ok(RPCService::new(dm.clone())));
 }
 
-pub fn run_client(rx: mpsc::Receiver<String>) {
+pub fn run_client(handle: &Handle, rx: mpsc::Receiver<String>) -> Box<Future<Item=ResponseMessage, Error=IOError>> {
     let addr = "127.0.0.1:12345".parse().unwrap();
-    let mut core = Core::new().unwrap();
+//    let mut core = Core::new().unwrap();
 
-    let connection = TcpClient::new(MessageProto).connect(&addr, &core.handle());
+    let connection = TcpClient::new(MessageProto).connect(&addr, &handle);
 
     let run =
         connection.and_then(move |client| {
@@ -115,36 +114,42 @@ pub fn run_client(rx: mpsc::Receiver<String>) {
                         println!("RES: {:?}", response);
                         Ok(response)
                     })
-                }).for_each(|rsp| {
+                }).fold(ResponseMessage::Ok, |acc, rsp| Ok::<ResponseMessage, IOError>(rsp)) /*.and_then(|rsp| {
                 println!("RSP : {:?}", rsp);
-                Ok( () )
-            })
+                Ok( rsp )
+            }) */
         });
 
-    core.run(run).unwrap();
+//    core.run(run).unwrap();
+
+    return Box::new(run);
 }
 
 
 #[cfg(test)]
 mod tests {
-    use ::rpc_server::run_client;
+    use ::rpc_server::{run_server, run_client};
     use std::{thread, time};
     use futures::sync::mpsc;
     use futures::Sink;
 
 
     #[test]
-    fn test() {
-        println!("Running client...");
-
-        let (mut tx, rx) = mpsc::channel(2);
-
-        tx.start_send(String::from("test")).unwrap();
-        tx.poll_complete().unwrap();
-
-        println!("Calling run_client");
-
-        run_client(rx);
-
+    fn test_server() {
+        run_server();
     }
+
+//    #[test]
+//    fn test_client() {
+//        println!("Running client...");
+//
+//        let (mut tx, rx) = mpsc::channel(2);
+//
+//        tx.start_send(String::from("test")).unwrap();
+//        tx.poll_complete().unwrap();
+//
+//        println!("Calling run_client");
+//
+//        run_client(rx);
+//    }
 }
