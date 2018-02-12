@@ -13,7 +13,8 @@ use hyper::header::ContentLength;
 use hyper::server::{Http, Request, Response, Service};
 use tokio_core::reactor::{Handle, Core};
 use tokio_proto::Connect;
-use tokio_proto::pipeline::Pipeline;
+use tokio_proto::pipeline::{ClientService, Pipeline};
+use tokio_io::{AsyncRead, AsyncWrite};
 
 use rpc_server::{RPCClient, MessageProto};
 use rpc_server::{connect_rpc_client};
@@ -24,7 +25,7 @@ use std::rc::Rc;
 use std::io::Error as IOError;
 use std::borrow::Borrow;
 
-struct ElasticsearchService(Rc<Vec<RPCClient>>);
+struct ElasticsearchService(Rc<Vec<Connect<Pipeline, MessageProto>>>);
 
 pub type ResponseStream = Box<Stream<Item=Chunk, Error=Error>>;
 
@@ -40,22 +41,27 @@ impl Service for ElasticsearchService {
     type Future = Box<future::Future<Item=Self::Response, Error=Self::Error>>;
 
     fn call(&self, req: Request) -> Self::Future {
+        let clients = self.0.clone();
+
         match(req.method(), req.path()) {
             (&Method::Get, "/") => {
 
-                let all_sends = self.0.iter().map(move |rpc_client: &RPCClient| {
-                    let client = rpc_client.clone();
-
+                let all_sends =
+                    clients.into_iter().map(move |rpc_client :Connect<Pipeline, MessageProto>| {
                     let req = RequestMessage::Get(String::from("method"), LogValue::String(String::from("GET")));
-                    let send = client.tx.send(req);
+                    let client = rpc_client.wait().unwrap();
 
-                    *client.res
+                    client.call(req).and_then(|response| {
+                            debug!("RPC RSP: {:?}", response);
+                            Ok(response)
+                        })
                 });
 
-//                let results = stream::futures_unordered(all_sends);
-//                    .and_then(|resp| {
-//                        println!("RSP: {:?}", resp);
-//                    }).collect();
+                let results = stream::futures_unordered(all_sends)
+                    .and_then(|resp| {
+                        println!("RSP: {:?}", resp);
+                        Ok(resp)
+                    }).collect();
 
                 let body: ResponseStream = Box::new(Body::from(NOTFOUND));
 
@@ -86,12 +92,13 @@ impl Service for ElasticsearchService {
     }
 }
 
-pub fn configure_http_server(handle: &Handle, clients: Vec<RPCClient>) {
+pub fn configure_http_server(handle: &Handle, clients: Vec<Connect<Pipeline, MessageProto>>) {
     let addr = "127.0.0.1:3000".parse().unwrap();
     let rc = Rc::new(clients);
 
     let serve =
         Http::new().serve_addr_handle(&addr, &handle, move || Ok(ElasticsearchService(rc.clone()))).unwrap();
+
     println!("Listening on http://{} with 1 thread.", serve.incoming_ref().local_addr());
 
     let http_handle_2 = handle.clone();

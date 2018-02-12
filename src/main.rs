@@ -83,23 +83,17 @@ fn main() {
     for ip in ["127.0.0.1:12345", "127.0.0.1:23456"].iter() {
         let addr = "127.0.0.1:12345".parse().unwrap();
         let handle = core.handle();
-        let client = TcpClient::new(MessageProto).connect(&addr, &handle).wait().unwrap();
-        let (mut tx, rx) = mpsc::channel(2);
 
-        let res =
-            rx.map_err(|e| unreachable!("rx can't fail"))
-                .and_then(move |rpc_req| {
-                    client.call(rpc_req).and_then(|response| {
-                        debug!("RPC RSP: {:?}", response);
-                        Ok(response)
-                    })
-                })
-                .fold(ResponseMessage::Ok, |_acc, rsp| Ok::<ResponseMessage, IOError>(rsp));
+        info!("Attempting to connect to {}", addr);
 
-        clients.push(RPCClient{tx, res: Rc::new(res)});
+        let client = TcpClient::new(MessageProto).connect(&addr, &handle);
+
+        clients.push(client);
     }
 
     let http_core = core.handle();
+
+    debug!("GOT HERE");
 
     configure_http_server(&http_core, clients);
 
