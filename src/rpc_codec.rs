@@ -82,14 +82,14 @@ impl<Recv, Send> Encoder for LengthPrefixedMessage<Recv, Send> where Send: Seria
 }
 
 // create the two message enums
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum RequestMessage {
     Insert(HashMap<String, LogValue>),
     //    InsertAll(Vec<HashMap<String, LogValue>>),
     Get(String, LogValue)
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum ResponseMessage {
     Ok, // response to Insert and InsertAll
     Logs(Vec<HashMap<String, LogValue>>) // response to Get
