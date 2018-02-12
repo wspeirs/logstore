@@ -36,11 +36,21 @@ mod rpc_server;
 mod record_error;
 mod http_server;
 
-use tokio_proto::TcpServer;
-
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::thread;
+use log::Level;
+use std::io::Error as IOError;
+use std::rc::Rc;
+
+use tokio_core::reactor::{Handle, Core};
+use tokio_proto::{TcpServer, TcpClient, Connect};
+use tokio_service::Service;
+use futures::future;
+use futures::sync::mpsc;
+use futures::Stream;
+use futures::Future;
 
 use ::log_value::LogValue;
 use ::utils::buf2string;
@@ -49,17 +59,51 @@ use ::log_file::LogFile;
 use ::index_file::IndexFile;
 use ::data_manager::DataManager;
 
-//use ::rpc_server::run_server;
-use ::http_server::run_server;
+use ::rpc_server::run_rpc_server;
+use ::http_server::configure_http_server;
+use ::rpc_server::{RPCClient, MessageProto};
+use ::rpc_codec::ResponseMessage;
 
 extern crate time;
 use time::PreciseTime;
 use serde_json::Number;
 
 fn main() {
-    simple_logger::init().unwrap();  // this will panic on error
+    simple_logger::init_with_level(Level::Debug).unwrap();  // this will panic on error
 
-    run_server();
+    let handler = thread::Builder::new().name("rpc server".to_string()).spawn(move || {
+        run_rpc_server()
+    }).unwrap();
 
+    // pretend that we read a list of IP:port from a file and package them into a vector
+    let mut clients = Vec::new();
+
+    let mut core = Core::new().unwrap();
+
+    for ip in ["127.0.0.1:12345", "127.0.0.1:23456"].iter() {
+        let addr = "127.0.0.1:12345".parse().unwrap();
+        let handle = core.handle();
+        let client = TcpClient::new(MessageProto).connect(&addr, &handle).wait().unwrap();
+        let (mut tx, rx) = mpsc::channel(2);
+
+        let res =
+            rx.map_err(|e| unreachable!("rx can't fail"))
+                .and_then(move |rpc_req| {
+                    client.call(rpc_req).and_then(|response| {
+                        debug!("RPC RSP: {:?}", response);
+                        Ok(response)
+                    })
+                })
+                .fold(ResponseMessage::Ok, |_acc, rsp| Ok::<ResponseMessage, IOError>(rsp));
+
+        clients.push(RPCClient{tx, res: Rc::new(res)});
+    }
+
+    let http_core = core.handle();
+
+    configure_http_server(&http_core, clients);
+
+    core.run(future::empty::<(), ()>()).unwrap();
+    handler.join().unwrap();
 }
 

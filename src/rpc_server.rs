@@ -3,17 +3,19 @@ use std::io::{Cursor, Read, Write, ErrorKind, Error as IOError};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::rc::Rc;
 
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use bytes::BytesMut;
 use tokio_core::reactor::{Handle, Core};
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::codec::{Encoder, Decoder, Framed};
-use tokio_proto::{TcpServer, TcpClient};
-use tokio_proto::pipeline::{ServerProto, ClientProto};
+use tokio_proto::{TcpServer, TcpClient, Connect};
+use tokio_proto::pipeline::{ServerProto, ClientProto, Pipeline};
 use tokio_service::Service;
 use futures::{Stream, Sink, Future, future};
 use futures::sync::mpsc;
+use futures::sync::mpsc::Sender;
 use rmps::decode::from_read;
 use rmps::encode::to_vec;
 
@@ -86,7 +88,7 @@ impl Service for RPCService {
     }
 }
 
-pub fn run_server() {
+pub fn run_rpc_server() {
     let addr = "0.0.0.0:12345".parse().unwrap();
 
     let server = TcpServer::new(MessageProto, addr);
@@ -96,39 +98,43 @@ pub fn run_server() {
     server.serve(move || Ok(RPCService::new(dm.clone())));
 }
 
-pub fn run_client(handle: &Handle, rx: mpsc::Receiver<String>) -> Box<Future<Item=ResponseMessage, Error=IOError>> {
+pub fn connect_rpc_client(handle: &Handle) -> Connect<Pipeline, MessageProto> {
     let addr = "127.0.0.1:12345".parse().unwrap();
-//    let mut core = Core::new().unwrap();
 
-    let connection = TcpClient::new(MessageProto).connect(&addr, &handle);
-
-    let run =
-        connection.and_then(move |client| {
-            println!("IN HERE");
-            rx.map_err(|e| unreachable!("rx can't fail"))
-                .and_then(move |msg| {
-                    println!("MSG: {}", msg);
-                    let req = RequestMessage::Get(String::from("method"), LogValue::String(String::from("GET")));
-
-                    client.call(req).and_then(move |response| {
-                        println!("RES: {:?}", response);
-                        Ok(response)
-                    })
-                }).fold(ResponseMessage::Ok, |acc, rsp| Ok::<ResponseMessage, IOError>(rsp)) /*.and_then(|rsp| {
-                println!("RSP : {:?}", rsp);
-                Ok( rsp )
-            }) */
-        });
-
-//    core.run(run).unwrap();
-
-    return Box::new(run);
+    TcpClient::new(MessageProto).connect(&addr, &handle)
 }
+
+//pub fn make_request(connection: &Connect<Pipeline, MessageProto>, rx: mpsc::Receiver<String>) -> Box<Future<Item=ResponseMessage, Error=IOError>> {
+//    let run =
+//        connection.and_then(|client| {
+//            println!("IN HERE");
+//            rx.map_err(|e| unreachable!("rx can't fail"))
+//                .and_then(move |msg| {
+//                    println!("MSG: {}", msg);
+//                    let req = RequestMessage::Get(String::from("method"), LogValue::String(String::from("GET")));
+//
+//                    client.call(req).and_then(|response| {
+//                        println!("RES: {:?}", response);
+//                        Ok(response)
+//                    })
+//                })
+//                .fold(ResponseMessage::Ok, |_acc, rsp| Ok::<ResponseMessage, IOError>(rsp))
+//        });
+//
+//    return Box::new(run);
+//}
+
+#[derive(Clone)]
+pub struct RPCClient {
+    pub tx: Sender<RequestMessage>,
+    pub res: Rc<Future<Item=ResponseMessage, Error=IOError>>
+}
+
 
 
 #[cfg(test)]
 mod tests {
-    use ::rpc_server::{run_server, run_client};
+    use ::rpc_server::{run_rpc_server, make_request};
     use std::{thread, time};
     use futures::sync::mpsc;
     use futures::Sink;
@@ -136,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_server() {
-        run_server();
+        run_rpc_server();
     }
 
 //    #[test]
