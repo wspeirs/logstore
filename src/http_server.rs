@@ -12,11 +12,11 @@ use hyper::error::Error;
 use hyper::header::ContentLength;
 use hyper::server::{Http, Request, Response, Service};
 use tokio_core::reactor::{Handle, Core};
-use tokio_proto::Connect;
+use tokio_proto::{TcpServer, TcpClient, Connect};
 use tokio_proto::pipeline::{ClientService, Pipeline};
 use tokio_io::{AsyncRead, AsyncWrite};
 
-use rpc_server::{RPCClient, MessageProto};
+use rpc_server::{RPCClient, MessageProto, RPCConnection};
 use rpc_server::{connect_rpc_client};
 use ::rpc_codec::{ResponseMessage, RequestMessage};
 use ::log_value::LogValue;
@@ -24,8 +24,9 @@ use ::log_value::LogValue;
 use std::rc::Rc;
 use std::io::Error as IOError;
 use std::borrow::Borrow;
+use std::collections::HashMap;
 
-struct ElasticsearchService(Rc<Vec<Connect<Pipeline, MessageProto>>>);
+struct ElasticsearchService(Rc<HashMap<u32, RPCClient>>);
 
 pub type ResponseStream = Box<Stream<Item=Chunk, Error=Error>>;
 
@@ -46,23 +47,22 @@ impl Service for ElasticsearchService {
         match(req.method(), req.path()) {
             (&Method::Get, "/") => {
 
-                let all_sends =
-                    clients.into_iter().map(move |rpc_client :Connect<Pipeline, MessageProto>| {
+                let results = clients.values().into_iter().map(move |rpc_client| {
+                    let client = rpc_client.get_connection();
                     let req = RequestMessage::Get(String::from("method"), LogValue::String(String::from("GET")));
-                    let client = rpc_client.wait().unwrap();
 
                     client.call(req).and_then(|response| {
-                            debug!("RPC RSP: {:?}", response);
-                            Ok(response)
-                        })
+                        debug!("RPC RSP: {:?}", response);
+                        Ok(response)
+                    })
                 });
 
-                let results = stream::futures_unordered(all_sends)
-                    .and_then(|resp| {
-                        println!("RSP: {:?}", resp);
-                        Ok(resp)
-                    }).collect();
-
+//                let results = stream::futures_unordered(all_sends)
+//                    .and_then(|resp| {
+//                        println!("RSP: {:?}", resp);
+//                        Ok(resp)
+//                    }).collect();
+//
                 let body: ResponseStream = Box::new(Body::from(NOTFOUND));
 
                 Box::new(futures::future::ok(Response::new()
@@ -92,7 +92,7 @@ impl Service for ElasticsearchService {
     }
 }
 
-pub fn configure_http_server(handle: &Handle, clients: Vec<Connect<Pipeline, MessageProto>>) {
+pub fn configure_http_server(handle: &Handle, clients: HashMap<u32, RPCClient>) {
     let addr = "127.0.0.1:3000".parse().unwrap();
     let rc = Rc::new(clients);
 

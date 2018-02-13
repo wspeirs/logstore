@@ -3,6 +3,8 @@ use std::io::{Cursor, Read, Write, ErrorKind, Error as IOError};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::cell::{Ref, RefCell};
+use std::boxed::Box;
 use std::rc::Rc;
 
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
@@ -10,7 +12,7 @@ use bytes::BytesMut;
 use tokio_core::reactor::{Handle, Core};
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::codec::{Encoder, Decoder, Framed};
-use tokio_proto::{TcpServer, TcpClient, Connect};
+use tokio_proto::{TcpServer, TcpClient, Connect, BindClient};
 use tokio_proto::pipeline::{ServerProto, ClientProto, Pipeline};
 use tokio_service::Service;
 use futures::{Stream, Sink, Future, future};
@@ -124,10 +126,35 @@ pub fn connect_rpc_client(handle: &Handle) -> Connect<Pipeline, MessageProto> {
 //    return Box::new(run);
 //}
 
-#[derive(Clone)]
+pub enum RPCConnection {
+    Disconnected,
+    Connected(???)
+}
+
 pub struct RPCClient {
-    pub tx: Sender<RequestMessage>,
-    pub res: Rc<Future<Item=ResponseMessage, Error=IOError>>
+    address: String,
+    handle: Handle,
+    connection: RPCConnection
+}
+
+impl RPCClient {
+    pub fn new(address: String, handle: Handle) -> RPCClient {
+        RPCClient{ address, handle, connection: RPCConnection::Disconnected }
+    }
+
+    pub fn get_connection(&mut self) -> RefCell<Connect<Pipeline, MessageProto>> {
+        match self.connection {
+            RPCConnection::Disconnected => {
+                let socket_addr = self.address.parse().unwrap();
+                let client =
+                    TcpClient::new(MessageProto).connect(&socket_addr, &self.handle).and_then(|c| c);
+                self.connection = RPCConnection::Connected(client);
+
+                client
+            },
+            RPCConnection::Connected(c) => c
+        }
+    }
 }
 
 
