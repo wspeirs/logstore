@@ -1,12 +1,10 @@
-use byteorder::{LE, ReadBytesExt, WriteBytesExt};
-use positioned_io::{ReadAt, ReadBytesExt as PositionedReadBytesExt };
-
+use byteorder::{ReadBytesExt, WriteBytesExt, LE};
+use positioned_io::{ReadAt, ReadBytesExt as PositionedReadBytesExt};
 
 use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write, Seek, SeekFrom, ErrorKind, Error as IOError};
+use std::io::{Error as IOError, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
-
 
 /// This struct represents the on-disk format of the RecordFile
 /// |---------------------------|
@@ -31,7 +29,7 @@ pub struct RecordFile {
     pub file_path: PathBuf, // location of the file on disk
     pub record_count: u32,  // number of records in the file
     pub header_len: usize,  // length of the header
-    pub end_of_file: u64    // end of the file (size) as controlled by RecordFile
+    pub end_of_file: u64,   // end of the file (size) as controlled by RecordFile
 }
 
 pub fn buf2string(buf: &[u8]) -> String {
@@ -57,7 +55,11 @@ impl RecordFile {
     pub fn new(file_path: &PathBuf, header: &[u8]) -> Result<RecordFile, IOError> {
         debug!("Attempting to open file: {}", file_path.display());
 
-        let mut fd = OpenOptions::new().read(true).write(true).create(true).open(&file_path)?;
+        let mut fd = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&file_path)?;
         let mut record_count = 0;
         let mut end_of_file = (header.len() + 4 + 8) as u64;
 
@@ -68,14 +70,22 @@ impl RecordFile {
             fd.write(header)?;
             fd.write_u32::<LE>(BAD_COUNT)?; // record count
             fd.write_u64::<LE>(end_of_file)?;
-            debug!("Created new RecordFile {} with count {} and eof {}", file_path.display(), record_count, end_of_file);
+            debug!(
+                "Created new RecordFile {} with count {} and eof {}",
+                file_path.display(),
+                record_count,
+                end_of_file
+            );
         } else {
             let mut header_buff = vec![0; header.len()];
 
             fd.read_exact(&mut header_buff)?;
 
             if header != header_buff.as_slice() {
-                return Err(IOError::new(ErrorKind::InvalidData, format!("Invalid file header for: {}", file_path.display())));
+                return Err(IOError::new(
+                    ErrorKind::InvalidData,
+                    format!("Invalid file header for: {}", file_path.display()),
+                ));
             }
 
             record_count = fd.read_u32::<LE>()?;
@@ -89,10 +99,21 @@ impl RecordFile {
 
             fd.seek(SeekFrom::Start(end_of_file))?; // go to the end of the file
 
-            debug!("Opened RecordFile {} with count {} and eof {}", file_path.display(), record_count, end_of_file);
+            debug!(
+                "Opened RecordFile {} with count {} and eof {}",
+                file_path.display(),
+                record_count,
+                end_of_file
+            );
         }
 
-        Ok(RecordFile { fd, file_path: PathBuf::from(file_path), record_count, header_len: header.len(), end_of_file })
+        Ok(RecordFile {
+            fd,
+            file_path: PathBuf::from(file_path),
+            record_count,
+            header_len: header.len(),
+            end_of_file,
+        })
     }
 
     /// Appends a record to the end of the file
@@ -102,7 +123,11 @@ impl RecordFile {
         let rec_size = record.len();
 
         // TODO: check if we're debugging
-        debug!("WROTE RECORD AT {}: {}", rec_loc, rec_to_string(rec_size as u32, record));
+        debug!(
+            "WROTE RECORD AT {}: {}",
+            rec_loc,
+            rec_to_string(rec_size as u32, record)
+        );
 
         self.fd.write_u32::<LE>(rec_size as u32)?;
         self.fd.write(record)?;
@@ -116,19 +141,23 @@ impl RecordFile {
 
     /// Read a record from a given offset
     pub fn read_at(&self, file_offset: u64) -> Result<Vec<u8>, IOError> {
-//        self.fd.seek(SeekFrom::Start(file_offset))?;
-//
-//        let rec_size = self.fd.read_u32::<LE>()?;
-//        let mut rec_buff = vec![0; rec_size as usize];
-//
-//        self.fd.read_exact(&mut rec_buff)?;
+        //        self.fd.seek(SeekFrom::Start(file_offset))?;
+        //
+        //        let rec_size = self.fd.read_u32::<LE>()?;
+        //        let mut rec_buff = vec![0; rec_size as usize];
+        //
+        //        self.fd.read_exact(&mut rec_buff)?;
 
         let rec_size = self.fd.read_u32_at::<LE>(file_offset)?;
         let mut rec_buff = vec![0; rec_size as usize];
 
-        self.fd.read_exact_at(file_offset+4, &mut rec_buff)?;
+        self.fd.read_exact_at(file_offset + 4, &mut rec_buff)?;
 
-        debug!("READ RECORD FROM {}: {}", file_offset, rec_to_string(rec_size as u32, &rec_buff));
+        debug!(
+            "READ RECORD FROM {}: {}",
+            file_offset,
+            rec_to_string(rec_size as u32, &rec_buff)
+        );
 
         Ok(rec_buff)
     }
@@ -136,18 +165,23 @@ impl RecordFile {
 
 impl Drop for RecordFile {
     fn drop(&mut self) {
-        self.fd.seek(SeekFrom::Start(self.header_len as u64)).unwrap();
+        self.fd
+            .seek(SeekFrom::Start(self.header_len as u64))
+            .unwrap();
         self.fd.write_u32::<LE>(self.record_count).unwrap(); // cannot return an error, so best attempt
         self.fd.write_u64::<LE>(self.end_of_file).unwrap(); // write out the end of the file
         self.fd.flush().unwrap();
 
-        debug!("RecordFile Drop: records: {}; eof: {}", self.record_count, self.end_of_file);
+        debug!(
+            "RecordFile Drop: records: {}; eof: {}",
+            self.record_count, self.end_of_file
+        );
     }
 }
 
 pub struct RecordFileIterator {
     record_file: RefCell<RecordFile>,
-    cur_record: u32
+    cur_record: u32,
 }
 
 impl IntoIterator for RecordFile {
@@ -157,7 +191,10 @@ impl IntoIterator for RecordFile {
     fn into_iter(self) -> Self::IntoIter {
         debug!("Created RecordFileIterator");
 
-        RecordFileIterator{ record_file: RefCell::new(self), cur_record: 0 }
+        RecordFileIterator {
+            record_file: RefCell::new(self),
+            cur_record: 0,
+        }
     }
 }
 
@@ -168,7 +205,11 @@ impl Iterator for RecordFileIterator {
         // move to the start of the records if this is the first time through
         if self.cur_record == 0 {
             let offset = self.record_file.borrow().header_len as u64 + 4 + 8;
-            self.record_file.get_mut().fd.seek(SeekFrom::Start(offset)).unwrap();
+            self.record_file
+                .get_mut()
+                .fd
+                .seek(SeekFrom::Start(offset))
+                .unwrap();
         }
 
         // invariant when we've reached the end of the records
@@ -177,8 +218,11 @@ impl Iterator for RecordFileIterator {
         }
 
         let rec_size = match self.record_file.get_mut().fd.read_u32::<LE>() {
-            Err(e) => { error!("Error reading record file: {}", e.to_string()); return None; },
-            Ok(s) => s
+            Err(e) => {
+                error!("Error reading record file: {}", e.to_string());
+                return None;
+            }
+            Ok(s) => s,
         };
 
         let mut msg_buff = vec![0; rec_size as usize];
@@ -198,28 +242,35 @@ impl Iterator for RecordFileIterator {
 
 pub struct MutRecordFileIterator<'a> {
     record_file: RefCell<&'a mut RecordFile>,
-    cur_record: u32
+    cur_record: u32,
 }
 
-impl <'a> IntoIterator for &'a mut RecordFile {
+impl<'a> IntoIterator for &'a mut RecordFile {
     type Item = Vec<u8>;
     type IntoIter = MutRecordFileIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         debug!("Created RecordFileIterator");
 
-        MutRecordFileIterator{ record_file: RefCell::new(self), cur_record: 0 }
+        MutRecordFileIterator {
+            record_file: RefCell::new(self),
+            cur_record: 0,
+        }
     }
 }
 
-impl <'a> Iterator for MutRecordFileIterator<'a> {
+impl<'a> Iterator for MutRecordFileIterator<'a> {
     type Item = Vec<u8>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // move to the start of the records if this is the first time through
         if self.cur_record == 0 {
             let offset = self.record_file.borrow().header_len as u64 + 4 + 8;
-            self.record_file.get_mut().fd.seek(SeekFrom::Start(offset)).unwrap();
+            self.record_file
+                .get_mut()
+                .fd
+                .seek(SeekFrom::Start(offset))
+                .unwrap();
         }
 
         // invariant when we've reached the end of the records
@@ -228,8 +279,11 @@ impl <'a> Iterator for MutRecordFileIterator<'a> {
         }
 
         let rec_size = match self.record_file.get_mut().fd.read_u32::<LE>() {
-            Err(e) => { error!("Error reading record file: {}", e.to_string()); return None; },
-            Ok(s) => s
+            Err(e) => {
+                error!("Error reading record file: {}", e.to_string());
+                return None;
+            }
+            Ok(s) => s,
         };
 
         let mut msg_buff = vec![0; rec_size as usize];
@@ -249,18 +303,19 @@ impl <'a> Iterator for MutRecordFileIterator<'a> {
 
 #[cfg(test)]
 mod tests {
-    use ::record_file::RecordFile;
+    use record_file::RecordFile;
 
     use simple_logger;
     use std::path::PathBuf;
     use std::fs::remove_file;
-    use std::io::{Read, Write, Seek, SeekFrom, ErrorKind, Error as IOError};
+    use std::io::{Error as IOError, ErrorKind, Read, Seek, SeekFrom, Write};
 
     #[test]
     fn new() {
-        simple_logger::init().unwrap();  // this will panic on error
+        simple_logger::init().unwrap(); // this will panic on error
         remove_file("/tmp/test.data");
-        let mut rec_file = RecordFile::new(&PathBuf::from("/tmp/test.data"), "ABCD".as_bytes()).unwrap();
+        let mut rec_file =
+            RecordFile::new(&PathBuf::from("/tmp/test.data"), "ABCD".as_bytes()).unwrap();
 
         rec_file.fd.seek(SeekFrom::Start(rec_file.end_of_file));
         rec_file.fd.write("TEST".as_bytes());
@@ -268,9 +323,10 @@ mod tests {
 
     #[test]
     fn append() {
-        simple_logger::init().unwrap();  // this will panic on error
+        simple_logger::init().unwrap(); // this will panic on error
         remove_file("/tmp/test.data");
-        let mut rec_file = RecordFile::new(&PathBuf::from("/tmp/test.data"), "ABCD".as_bytes()).unwrap();
+        let mut rec_file =
+            RecordFile::new(&PathBuf::from("/tmp/test.data"), "ABCD".as_bytes()).unwrap();
 
         // put this here to see if it messes with stuff
         rec_file.fd.seek(SeekFrom::Start(rec_file.end_of_file));
@@ -287,9 +343,10 @@ mod tests {
 
     #[test]
     fn read_at() {
-        simple_logger::init().unwrap();  // this will panic on error
+        simple_logger::init().unwrap(); // this will panic on error
         remove_file("/tmp/test.data");
-        let mut rec_file = RecordFile::new(&PathBuf::from("/tmp/test.data"), "ABCD".as_bytes()).unwrap();
+        let mut rec_file =
+            RecordFile::new(&PathBuf::from("/tmp/test.data"), "ABCD".as_bytes()).unwrap();
         let rec = "THE_RECORD".as_bytes();
 
         rec_file.append(rec).unwrap();
@@ -302,9 +359,10 @@ mod tests {
 
     #[test]
     fn iterate() {
-        simple_logger::init().unwrap();  // this will panic on error
+        simple_logger::init().unwrap(); // this will panic on error
         remove_file("/tmp/test.data");
-        let mut rec_file = RecordFile::new(&PathBuf::from("/tmp/test.data"), "ABCD".as_bytes()).unwrap();
+        let mut rec_file =
+            RecordFile::new(&PathBuf::from("/tmp/test.data"), "ABCD".as_bytes()).unwrap();
 
         // put this here to see if it messes with stuff
         rec_file.fd.seek(SeekFrom::Start(rec_file.end_of_file));
