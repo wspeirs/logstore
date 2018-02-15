@@ -5,13 +5,13 @@
 //
 
 use std::io;
-use rmps::{encode, decode};
+use rmps::{decode, encode};
 
 #[derive(Debug)]
 pub enum RecordError {
     Io(io::Error),
     Encode(encode::Error),
-    Decode(decode::Error)
+    Decode(decode::Error),
 }
 
 impl RecordError {
@@ -19,7 +19,7 @@ impl RecordError {
         match self {
             &RecordError::Io(ref e) => e.to_string(),
             &RecordError::Encode(ref e) => e.to_string(),
-            &RecordError::Decode(ref e) => e.to_string()
+            &RecordError::Decode(ref e) => e.to_string(),
         }
     }
 }
@@ -41,4 +41,3 @@ impl From<decode::Error> for RecordError {
         RecordError::Decode(err)
     }
 }
-
