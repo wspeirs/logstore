@@ -134,27 +134,30 @@ pub struct RPCClient {
 }
 
 impl RPCClient {
-    pub fn new(address: String, handle: Handle) -> RPCClient {
+    pub fn new(address: String, core: &mut Core) -> RPCClient {
         let socket_addr = address.parse().unwrap();
 
         // create a sender -> RCPClient channel
-        let (mut send2rpc_tx, send2rpc_rx) = mpsc::channel(2);
+        let (request_tx, request_rx) = mpsc::channel(2);
 
         // create a RPCClient -> receiver channel
-        let (mut rpc2rcv_tx, rpc2rcv_rx) = mpsc::channel(2);
+        let (response_tx, response_rx) = mpsc::channel(2);
+
+        // create a handle for the connection
+        let handle = core.handle();
 
         let connection_future = TcpClient::new(MessageProto)
             .connect(&socket_addr, &handle)
-            .and_then(move |client| {
-                send2rpc_rx
-                    .map_err(|e| unreachable!("rx can't fail"))
-                    .and_then(move |msg: RequestMessage| {
+            .and_then(  move |client| {
+                request_rx
+                    .map_err( |e| unreachable!("rx can't fail"))
+                    .and_then( move |msg: RequestMessage| {
                         println!("REQUEST: {:?}", msg);
+                        let response_tx_inner = response_tx.clone();
 
-                        client.call(msg).and_then(|response: ResponseMessage| {
+                        client.call(msg).and_then( move |response: ResponseMessage| {
                             println!("RESPONSE: {:?}", response);
-                            rpc2rcv_tx
-                                .clone()
+                            response_tx_inner
                                 .send(response)
                                 .map_err(|e| IOError::new(ErrorKind::InvalidData, e.to_string()))
                         })
@@ -162,10 +165,13 @@ impl RPCClient {
                     .fold((), |_acc, _| Ok::<(), IOError>(()))
             });
 
+        // establish this connection
+        core.run(connection_future).unwrap();
+
         RPCClient {
             address,
-            tx: send2rpc_tx,
-            rx: rpc2rcv_rx,
+            tx: request_tx,
+            rx: response_rx,
         }
     }
 

@@ -23,7 +23,7 @@ use rpc_codec::{RequestMessage, ResponseMessage};
 use log_value::LogValue;
 
 use std::rc::Rc;
-use std::io::Error as IOError;
+use std::io::{Cursor, Error as IOError, ErrorKind, Read, Write};
 use std::borrow::Borrow;
 use std::collections::HashMap;
 
@@ -47,7 +47,8 @@ impl Service for ElasticsearchService {
 
         match (req.method(), req.path()) {
             (&Method::Get, "/") => {
-                let result = clients.values().map(move |rpc_client| {
+                let result =
+                    clients.values().map(move |rpc_client| {
                     let (tx, rx) = rpc_client.get_connection();
 
                     // make a bogus request, would come from GET request
@@ -55,7 +56,9 @@ impl Service for ElasticsearchService {
                         String::from("method"),
                         LogValue::String(String::from("GET")),
                     );
-                    tx.send(req).and_then(|_| rx.into_future())
+                    tx.send(req)
+                        .map_err(|e| IOError::new(ErrorKind::InvalidData, e.to_string()))
+                        .and_then(|_| rx.map_err(|_| unreachable!("rx cannot fail")).fold((), |_acc, _| Ok::<(), IOError>(())))
                 });
 
 //                let results = stream::futures_unordered(all_sends)
@@ -64,7 +67,7 @@ impl Service for ElasticsearchService {
 //                        Ok(resp)
 //                    }).collect();
 //
-                let body: ResponseStream = Box::new(Body::from(NOTFOUND));
+//                let body: ResponseStream = Box::new(Body::from(NOTFOUND));
 
 //                Box::new(futures::future::ok(Response::new()
 //                    .with_status(StatusCode::NotFound)
@@ -73,7 +76,7 @@ impl Service for ElasticsearchService {
 //                ))
 
                 Box::new(
-                    stream::iter_ok(result)
+                    futures::future::ok(result)
                         .map_err(|e| hyper::Error::Io(e))
                         .map(|rpc_rsp| {
                             //                        debug!("RPC RSP: {:?}", rpc_rsp);

@@ -82,11 +82,11 @@ fn main() {
     // insert bogus servers
     server_info.insert(
         0,
-        RPCClient::new("127.0.0.1:12345".to_string(), core.handle()),
+        RPCClient::new("127.0.0.1:12345".to_string(), &mut core),
     );
     server_info.insert(
         1,
-        RPCClient::new("127.0.0.1:2345".to_string(), core.handle()),
+        RPCClient::new("127.0.0.1:2345".to_string(), &mut core),
     );
 
     // spaw off our RPC server
