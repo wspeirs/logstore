@@ -1,30 +1,21 @@
 use futures;
 use futures::future;
-use futures::{Future, Sink, Stream};
-use futures::sync::mpsc;
+use futures::{Future, Stream};
 use futures::stream;
-use futures::stream::futures_unordered::FuturesUnordered;
-use futures::sync::mpsc::Sender;
 
 use hyper;
 use hyper::{Body, Chunk, Method, StatusCode};
 use hyper::error::Error;
 use hyper::header::ContentLength;
 use hyper::server::{Http, Request, Response, Service};
-use tokio_core::reactor::{Core, Handle};
-use tokio_proto::{Connect, TcpClient, TcpServer};
-use tokio_proto::pipeline::{ClientService, Pipeline};
-use tokio_io::{AsyncRead, AsyncWrite};
+use tokio_core::reactor::Handle;
 
-use rpc_server::{MessageProto, RPCClient}; //, RPCConnection};
-use rpc_server::connect_rpc_client;
-use rpc_codec::ClientCodec;
+use rpc_server::RPCClient;
 use rpc_codec::{RequestMessage, ResponseMessage};
 use log_value::LogValue;
+use json::map2json;
 
 use std::rc::Rc;
-use std::io::{Cursor, Error as IOError, ErrorKind, Read, Write};
-use std::borrow::Borrow;
 use std::collections::HashMap;
 
 struct ElasticsearchService(Rc<HashMap<u32, RPCClient>>);
@@ -47,43 +38,37 @@ impl Service for ElasticsearchService {
 
         match (req.method(), req.path()) {
             (&Method::Get, "/") => {
-                let result =
+                let response_futures =
                     clients.values().map(move |rpc_client| {
-                    let (tx, rx) = rpc_client.get_connection();
-
                     // make a bogus request, would come from GET request
                     let req = RequestMessage::Get(
                         String::from("method"),
                         LogValue::String(String::from("GET")),
                     );
-                    tx.send(req)
-                        .map_err(|e| IOError::new(ErrorKind::InvalidData, e.to_string()))
-                        .and_then(|_| rx.map_err(|_| unreachable!("rx cannot fail")).fold((), |_acc, _| Ok::<(), IOError>(())))
+
+                    rpc_client.make_request(req)
                 });
 
-//                let results = stream::futures_unordered(all_sends)
-//                    .and_then(|resp| {
-//                        println!("RSP: {:?}", resp);
-//                        Ok(resp)
-//                    }).collect();
-//
-//                let body: ResponseStream = Box::new(Body::from(NOTFOUND));
+                // accumulate all the results together
+                let response = stream::futures_unordered(response_futures)
+                    .map_err(|e| Error::Io(e))
+                    .map(|resp| {
+                        debug!("RSP: {:?}", resp);
 
-//                Box::new(futures::future::ok(Response::new()
-//                    .with_status(StatusCode::NotFound)
-//                    .with_header(ContentLength(NOTFOUND.len() as u64))
-//                    .with_body(body)
-//                ))
+                        match resp {
+                            ResponseMessage::Ok => stream::iter_ok(vec![]),
+                            ResponseMessage::Logs(l) => stream::iter_ok(l.into_iter().map(|m| Chunk::from(map2json(m).to_string())).collect::<Vec<_>>())
+                        }
+                    })
+                    .flatten()
+                ;
 
-                Box::new(
-                    futures::future::ok(result)
-                        .map_err(|e| hyper::Error::Io(e))
-                        .map(|rpc_rsp| {
-                            //                        debug!("RPC RSP: {:?}", rpc_rsp);
-                            let body: ResponseStream = Box::new(Body::from(NOTFOUND));
-                            Response::new().with_body(body)
-                        }),
-                )
+                let body: ResponseStream = Box::new(response);
+
+                Box::new(futures::future::ok( Response::new()
+                    .with_status(StatusCode::Ok)
+                    .with_body(body)
+                ))
             }
             _ => {
                 let body: ResponseStream = Box::new(Body::from(NOTFOUND));

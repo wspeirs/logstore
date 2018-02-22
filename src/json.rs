@@ -28,6 +28,16 @@ fn get_ts() -> (i64) {
     return (ts.sec * 1000) + (ts.nsec as i64 / 1000000);
 }
 
+pub fn map2json(log: HashMap<String, LogValue>) -> Value {
+    let mut ret_map =  Map::<String, Value>::with_capacity(log.len());
+
+    for (key, value) in log {
+        ret_map.insert(key, value.into_value());
+    }
+
+    Value::Object(ret_map)
+}
+
 pub fn json2map(log: &str) -> Result<HashMap<String, LogValue>, Box<Error>> {
     debug!("Attempting to parse JSON: {}", log);
 

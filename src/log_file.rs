@@ -3,7 +3,6 @@ use rmps::decode::from_slice;
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::vec::IntoIter;
 
 use ::record_file::{RecordFile, RecordFileIterator, BAD_COUNT};
 use ::log_value::LogValue;

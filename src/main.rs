@@ -23,9 +23,6 @@ extern crate tokio_proto;
 extern crate tokio_service;
 extern crate twox_hash;
 
-use rmps::encode::to_vec;
-use rmps::decode::from_slice;
-
 // my files/modules
 mod utils;
 mod log_file;
@@ -40,41 +37,33 @@ mod record_error;
 mod http_server;
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::thread;
+use std::time;
 use log::Level;
-use std::io::Error as IOError;
-use std::rc::Rc;
 
-use tokio_core::reactor::{Core, Handle};
-use tokio_proto::{Connect, TcpClient, TcpServer};
-use tokio_service::Service;
+use tokio_core::reactor::Core;
 use futures::future;
-use futures::sync::mpsc;
-use futures::{stream, Future, Stream};
-use futures::stream::IterOk;
-
-use log_value::LogValue;
-use utils::buf2string;
-use json::json2map;
-use log_file::LogFile;
-use index_file::IndexFile;
-use data_manager::DataManager;
 
 use rpc_server::run_rpc_server;
 use http_server::configure_http_server;
-use rpc_server::{MessageProto, RPCClient};
-use rpc_codec::ResponseMessage;
-
-extern crate time;
-use time::PreciseTime;
-use serde_json::Number;
+use rpc_server::RPCClient;
 
 fn main() {
     simple_logger::init_with_level(Level::Debug).unwrap(); // this will panic on error
 
     // create the core for the clients and HTTP Server
     let mut core = Core::new().unwrap();
+
+    // spaw off our RPC server
+    let handler = thread::Builder::new()
+        .name("rpc server".to_string())
+        .spawn(move || run_rpc_server())
+        .unwrap();
+
+    // hackie
+    thread::sleep(time::Duration::from_secs(5));
+
+    debug!("Creating client map");
 
     // construct the server info
     let mut server_info: HashMap<u32, RPCClient> = HashMap::new();
@@ -84,16 +73,11 @@ fn main() {
         0,
         RPCClient::new("127.0.0.1:12345".to_string(), &mut core),
     );
-    server_info.insert(
-        1,
-        RPCClient::new("127.0.0.1:2345".to_string(), &mut core),
-    );
+//    server_info.insert(
+//        1,
+//        RPCClient::new("127.0.0.1:2345".to_string(), &mut core),
+//    );
 
-    // spaw off our RPC server
-    let handler = thread::Builder::new()
-        .name("rpc server".to_string())
-        .spawn(move || run_rpc_server())
-        .unwrap();
 
     let http_core = core.handle();
 
@@ -101,6 +85,6 @@ fn main() {
 
     configure_http_server(&http_core, server_info);
 
-    //    core.run(future::empty::<(), ()>()).unwrap();
-    //    handler.join().unwrap();
+    core.run(future::empty::<(), ()>()).unwrap();
+    handler.join().unwrap();
 }

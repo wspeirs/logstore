@@ -1,29 +1,17 @@
-use std::str;
-use std::io::{Cursor, Error as IOError, ErrorKind, Read, Write};
-use std::collections::HashMap;
+use std::io::{Error as IOError, ErrorKind};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::cell::{Ref, RefCell};
 use std::boxed::Box;
-use std::rc::Rc;
 
-use byteorder::{ReadBytesExt, WriteBytesExt, LE};
-use bytes::BytesMut;
-use tokio_core::reactor::{Core, Handle};
-use tokio_core::net::{TcpStream, TcpStreamNew};
+use tokio_core::reactor::Core;
+use tokio_core::net::TcpStream;
 use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::{Decoder, Encoder, Framed};
-use tokio_proto::{BindClient, Connect, TcpClient, TcpServer};
-use tokio_proto::pipeline::{ClientProto, Pipeline, ServerProto};
+use tokio_io::codec::Framed;
+use tokio_proto::{TcpClient, TcpServer};
+use tokio_proto::pipeline::{ClientService, ClientProto, ServerProto};
 use tokio_service::Service;
-use futures::{future, Future, Sink, Stream};
-use futures::sync::mpsc;
-use futures::sync::mpsc::{channel, Receiver, Sender};
-use futures::IntoFuture;
-use rmps::decode::from_read;
-use rmps::encode::to_vec;
+use futures::{future, Future};
 
-use log_value::LogValue;
 use data_manager::DataManager;
 use rpc_codec::{ClientCodec, ServerCodec};
 use rpc_codec::{RequestMessage, ResponseMessage};
@@ -111,78 +99,44 @@ pub fn run_rpc_server() {
 
     let dm = Arc::new(Mutex::new(DataManager::new(Path::new("/tmp")).unwrap()));
 
+    debug!("Starting RPC server");
+
     server.serve(move || Ok(RPCService::new(dm.clone())));
 }
 
-pub fn connect_rpc_client(handle: &Handle) -> Connect<Pipeline, MessageProto> {
-    let addr = "127.0.0.1:12345".parse().unwrap();
-
-    TcpClient::new(MessageProto).connect(&addr, &handle)
-}
-
-//type Connection = Box<Future<Item = Connect<Pipeline, MessageProto>, Error = IOError>>;
-
-//pub enum RPCConnection {
-//    Disconnected,
-//    Connected(Connection),
-//}
+type Connection = ClientService<TcpStream, MessageProto>;
 
 pub struct RPCClient {
     address: String,
-    tx: Sender<RequestMessage>,
-    rx: Receiver<ResponseMessage>,
+    conn: Connection
 }
 
 impl RPCClient {
     pub fn new(address: String, core: &mut Core) -> RPCClient {
         let socket_addr = address.parse().unwrap();
 
-        // create a sender -> RCPClient channel
-        let (request_tx, request_rx) = mpsc::channel(2);
-
-        // create a RPCClient -> receiver channel
-        let (response_tx, response_rx) = mpsc::channel(2);
-
         // create a handle for the connection
         let handle = core.handle();
 
-        let connection_future = TcpClient::new(MessageProto)
-            .connect(&socket_addr, &handle)
-            .and_then(  move |client| {
-                request_rx
-                    .map_err( |e| unreachable!("rx can't fail"))
-                    .and_then( move |msg: RequestMessage| {
-                        println!("REQUEST: {:?}", msg);
-                        let response_tx_inner = response_tx.clone();
-
-                        client.call(msg).and_then( move |response: ResponseMessage| {
-                            println!("RESPONSE: {:?}", response);
-                            response_tx_inner
-                                .send(response)
-                                .map_err(|e| IOError::new(ErrorKind::InvalidData, e.to_string()))
-                        })
-                    })
-                    .fold((), |_acc, _| Ok::<(), IOError>(()))
-            });
+        let connection_future = TcpClient::new(MessageProto).connect(&socket_addr, &handle);
 
         // establish this connection
-        core.run(connection_future).unwrap();
+        let conn = core.run(connection_future).unwrap();
 
         RPCClient {
             address,
-            tx: request_tx,
-            rx: response_rx,
+            conn
         }
     }
 
-    pub fn get_connection(&self) -> (Sender<RequestMessage>, Receiver<ResponseMessage>) {
-        (self.tx.clone(), self.rx)
+    pub fn make_request(&self, req: RequestMessage) -> Box<Future<Item=ResponseMessage, Error=IOError>> {
+        return Box::new(self.conn.call(req));
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use rpc_server::{make_request, run_rpc_server};
+    use rpc_server::{run_rpc_server};
     use std::{thread, time};
     use futures::sync::mpsc;
     use futures::Sink;
@@ -191,18 +145,4 @@ mod tests {
     fn test_server() {
         run_rpc_server();
     }
-
-    //    #[test]
-    //    fn test_client() {
-    //        println!("Running client...");
-    //
-    //        let (mut tx, rx) = mpsc::channel(2);
-    //
-    //        tx.start_send(String::from("test")).unwrap();
-    //        tx.poll_complete().unwrap();
-    //
-    //        println!("Calling run_client");
-    //
-    //        run_client(rx);
-    //    }
 }

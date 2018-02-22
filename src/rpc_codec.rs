@@ -5,14 +5,12 @@ use serde::{Serialize, Deserialize};
 use tokio_io::codec::{Encoder, Decoder};
 use bytes::BytesMut;
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
-use rmps::decode::{from_slice, from_read};
+use rmps::decode::from_slice;
 use rmps::encode::to_vec;
 
-use std::io::{Cursor, Read, Write, ErrorKind, Error as IOError, Result as IOResult};
+use std::io::{Cursor, ErrorKind, Error as IOError, Result as IOResult};
 use std::marker::PhantomData;
-use std::mem;
 use std::collections::HashMap;
-use std::cmp::PartialEq;
 
 use ::log_value::LogValue;
 

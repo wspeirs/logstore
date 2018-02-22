@@ -3,7 +3,6 @@ use std::io::{Error as IOError, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::fs::read_dir;
 use rayon::prelude::*;
-use rayon::iter::Map;
 
 use ::log_file::LogFile;
 use ::index_file::IndexFile;
@@ -82,6 +81,7 @@ impl DataManager {
         ret
     }
 
+/*
     pub fn get_serial(&mut self, key: &str, value: &LogValue) -> Result<Vec<HashMap<String, LogValue>>, RecordError> {
         // get the locations from the index, or return if the key is not found
         let locs = match self.indices.get_mut(key) {
@@ -95,6 +95,7 @@ impl DataManager {
 
         Ok(ret)
     }
+*/
 
     pub fn flush(&mut self) -> () {
         for val in self.indices.values_mut() {
@@ -102,3 +103,38 @@ impl DataManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use data_manager::DataManager;
+    use log_value::LogValue;
+    use serde_json::Number;
+    use json::json2map;
+
+    #[test]
+    fn insert_test() {
+        let json_str = json!({
+        "time":"[11/Aug/2014:17:21:45 +0000]",
+        "remoteIP":"127.0.0.1",
+        "host":"localhost",
+        "request":"/index.html",
+        "query":"",
+        "method":"GET",
+        "status":"200",
+        "userAgent":"ApacheBench/2.3",
+        "referer":"-"
+        });
+
+        let mut log = json2map(&json_str.to_string()).unwrap();
+        let mut dm = DataManager::new(Path::new("/tmp/")).unwrap();
+
+        for i in 0..100 {
+            log.insert(String::from("count"), LogValue::Number(Number::from(i)));
+            dm.insert(&log).unwrap();
+        }
+
+    }
+
+}
+

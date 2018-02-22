@@ -43,6 +43,18 @@ impl LogValue {
             }
         }
     }
+
+    pub fn into_value(self) -> JsonValue {
+        match self {
+            LogValue::Null => JsonValue::Null,
+            LogValue::Bool(b) => JsonValue::Bool(b),
+            LogValue::Number(n) => JsonValue::Number(n),
+            LogValue::String(s) => JsonValue::String(s),
+            LogValue::Array(v) => JsonValue::Array(v.into_iter().map(|a| {
+                a.into_value()
+            }).collect::<Vec<_>>())
+        }
+    }
 }
 
 impl Debug for LogValue {
