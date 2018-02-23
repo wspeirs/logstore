@@ -17,6 +17,8 @@ use json::map2json;
 
 use std::rc::Rc;
 use std::collections::HashMap;
+use std::thread;
+use std::time;
 
 struct ElasticsearchService(Rc<HashMap<u32, RPCClient>>);
 
@@ -51,7 +53,7 @@ impl Service for ElasticsearchService {
 
                 // accumulate all the results together
                 let response = stream::futures_unordered(response_futures)
-                    .map_err(|e| Error::Io(e))
+                    .map_err(|e| { debug!("** ERROR ** {:?}", e); Error::Io(e) })
                     .map(|resp| {
                         debug!("RSP: {:?}", resp);
 
@@ -67,6 +69,7 @@ impl Service for ElasticsearchService {
 
                 Box::new(futures::future::ok( Response::new()
                     .with_status(StatusCode::Ok)
+//                    .with_header(ContentLength(23 as u64))
                     .with_body(body)
                 ))
             }

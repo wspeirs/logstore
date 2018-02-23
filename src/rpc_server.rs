@@ -83,7 +83,10 @@ impl Service for RPCService {
                 .lock()
                 .unwrap()
                 .get(&key, &value)
-                .map(|v| ResponseMessage::Logs(v)),
+                .map(|v| {
+                    debug!("LOG: {:?}", v);
+                    ResponseMessage::Logs(v)
+                }),
         }.map_err(|e| {
             IOError::new(ErrorKind::InvalidData, format!("Error: {}", e.to_string()))
         });

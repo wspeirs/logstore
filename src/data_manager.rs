@@ -129,7 +129,7 @@ mod tests {
         let mut log = json2map(&json_str.to_string()).unwrap();
         let mut dm = DataManager::new(Path::new("/tmp/")).unwrap();
 
-        for i in 0..100 {
+        for i in 0..50 {
             log.insert(String::from("count"), LogValue::Number(Number::from(i)));
             dm.insert(&log).unwrap();
         }

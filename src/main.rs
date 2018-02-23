@@ -49,7 +49,7 @@ use http_server::configure_http_server;
 use rpc_server::RPCClient;
 
 fn main() {
-    simple_logger::init_with_level(Level::Debug).unwrap(); // this will panic on error
+    simple_logger::init_with_level(Level::Trace).unwrap(); // this will panic on error
 
     // create the core for the clients and HTTP Server
     let mut core = Core::new().unwrap();
@@ -61,7 +61,7 @@ fn main() {
         .unwrap();
 
     // hackie
-    thread::sleep(time::Duration::from_secs(5));
+    thread::sleep(time::Duration::from_secs(2));
 
     debug!("Creating client map");
 
@@ -79,11 +79,11 @@ fn main() {
 //    );
 
 
-    let http_core = core.handle();
+    let http_handle = core.handle();
 
     //    debug!("GOT HERE");
 
-    configure_http_server(&http_core, server_info);
+    configure_http_server(&http_handle, server_info);
 
     core.run(future::empty::<(), ()>()).unwrap();
     handler.join().unwrap();
