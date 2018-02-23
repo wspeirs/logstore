@@ -49,7 +49,7 @@ use http_server::configure_http_server;
 use rpc_server::RPCClient;
 
 fn main() {
-    simple_logger::init_with_level(Level::Trace).unwrap(); // this will panic on error
+    simple_logger::init_with_level(Level::Info).unwrap(); // this will panic on error
 
     // create the core for the clients and HTTP Server
     let mut core = Core::new().unwrap();

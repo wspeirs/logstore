@@ -4,6 +4,8 @@
 use serde::{Serialize, Deserialize};
 use tokio_io::codec::{Encoder, Decoder};
 use bytes::BytesMut;
+use bytes::IntoBuf;
+use bytes::Buf;
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use rmps::decode::from_slice;
 use rmps::encode::to_vec;
@@ -39,8 +41,10 @@ impl<Recv, Send> Decoder for LengthPrefixedMessage<Recv, Send> where for<'de> Re
             return Ok(None);
         }
 
-        let mut size_buf = buf.split_to(4);
-        let mut cursor = Cursor::new(size_buf.as_mut());
+        let mut size_buf : [u8; 4] = [0; 4];
+        size_buf.clone_from_slice(&buf[0..4]);
+
+        let mut cursor = Cursor::new(size_buf);
 
         // read in the size, indicate we need more bytes if it fails
         let msg_size = match cursor.read_u32::<LE>() {
@@ -48,12 +52,19 @@ impl<Recv, Send> Decoder for LengthPrefixedMessage<Recv, Send> where for<'de> Re
             Err(_) => return Ok(None),
         };
 
+        debug!("DECODE: SIZE: {}\tBUF LEN: {}", msg_size, buf.len());
+
         // Make sure our buffer has all the bytes indicated by msg_size.
         if buf.len() < msg_size as usize {
+            debug!("INDICATING WE NEED MORE BYTES");
             return Ok(None);
         }
 
+        buf.split_to(4 as usize);
+
         let msg_buf: BytesMut = buf.split_to(msg_size as usize);
+
+        debug!("GOT BUFFER OF SIZE: {}", msg_buf.len());
 
         let ret: Recv = from_slice(&msg_buf[..]).map_err(|err| IOError::new(ErrorKind::InvalidData, err))?;
 
@@ -69,6 +80,8 @@ impl<Recv, Send> Encoder for LengthPrefixedMessage<Recv, Send> where Send: Seria
         let msg_bytes = to_vec(&msg).unwrap();
         let msg_size = msg_bytes.len() as u32;
         let mut msg_size_buf = vec![];
+
+        debug!("ENCODE SIZE: {}", msg_size);
 
         msg_size_buf.write_u32::<LE>(msg_size)?;
 
