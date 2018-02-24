@@ -161,13 +161,19 @@ impl RecordFile {
 
         Ok(rec_buff)
     }
+
+    /// Temporary until TcpServer can be shutdown
+    pub fn close(&mut self) {
+        self.fd.seek(SeekFrom::Start(self.header_len as u64)).unwrap();
+        self.fd.write_u32::<LE>(self.record_count).unwrap(); // cannot return an error, so best attempt
+        self.fd.write_u64::<LE>(self.end_of_file).unwrap(); // write out the end of the file
+        self.fd.flush().unwrap();
+    }
 }
 
 impl Drop for RecordFile {
     fn drop(&mut self) {
-        self.fd
-            .seek(SeekFrom::Start(self.header_len as u64))
-            .unwrap();
+        self.fd.seek(SeekFrom::Start(self.header_len as u64)).unwrap();
         self.fd.write_u32::<LE>(self.record_count).unwrap(); // cannot return an error, so best attempt
         self.fd.write_u64::<LE>(self.end_of_file).unwrap(); // write out the end of the file
         self.fd.flush().unwrap();

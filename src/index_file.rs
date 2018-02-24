@@ -188,6 +188,26 @@ impl IndexFile  {
 
         return Ok( () )
     }
+
+    pub fn close(&mut self) {
+        debug!("Closing index {}", self.index_name);
+
+        // flush the in-memory terms to disk
+        self.flush().unwrap();
+
+        let buff = to_vec(&self.term_map).unwrap();
+
+        if let Err(e) = self.rec_file.fd.seek(SeekFrom::Start(self.rec_file.end_of_file)) {
+            error!("Unable to seek to the end of the RecordFile: {}", e.to_string());
+            return;
+        }
+
+        if let Err(e) = self.rec_file.fd.write(&buff) {
+            error!("Error writing serialized term map to file: {}", e.to_string());
+        }
+
+        info!("Closed index: {}", self.index_name);
+    }
 }
 
 impl Drop for IndexFile {

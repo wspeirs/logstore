@@ -95,12 +95,11 @@ impl Service for RPCService {
     }
 }
 
-pub fn run_rpc_server() {
+pub fn run_rpc_server(dm: Arc<Mutex<DataManager>>) {
     let addr = "0.0.0.0:12345".parse().unwrap();
 
     let server = TcpServer::new(MessageProto, addr);
 
-    let dm = Arc::new(Mutex::new(DataManager::new(Path::new("/tmp")).unwrap()));
 
     debug!("Starting RPC server");
 

@@ -67,6 +67,11 @@ impl LogFile {
         }
     }
 
+    /// Temporary until TcpServer can be shutdown
+    pub fn close(&mut self) {
+        self.rec_file.close();
+    }
+
 }
 
 pub struct LogFileIterator {

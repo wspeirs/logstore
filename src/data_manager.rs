@@ -81,6 +81,16 @@ impl DataManager {
         ret
     }
 
+    /// This method is temporary until TcpServer can be closed gracefully
+    pub fn close(&mut self) {
+        // close the log file
+        self.log_file.close();
+
+        for index_file in self.indices.values_mut().into_iter() {
+            index_file.close();
+        }
+    }
+
 /*
     pub fn get_serial(&mut self, key: &str, value: &LogValue) -> Result<Vec<HashMap<String, LogValue>>, RecordError> {
         // get the locations from the index, or return if the key is not found
