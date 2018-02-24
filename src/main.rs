@@ -8,6 +8,7 @@ extern crate serde_json;
 extern crate base64;
 extern crate byteorder;
 extern crate bytes;
+extern crate chan_signal;
 extern crate futures;
 extern crate futures_cpupool;
 extern crate hyper;
@@ -41,15 +42,20 @@ use std::thread;
 use std::time;
 use log::Level;
 
+use chan_signal::Signal;
 use tokio_core::reactor::Core;
 use futures::future;
+use futures::executor;
 
 use rpc_server::run_rpc_server;
 use http_server::configure_http_server;
 use rpc_server::RPCClient;
 
 fn main() {
-    simple_logger::init_with_level(Level::Info).unwrap(); // this will panic on error
+    simple_logger::init_with_level(Level::Debug).unwrap(); // this will panic on error
+
+    // signal channel to handle Ctrl-C
+    let signal = chan_signal::notify(&[Signal::INT, Signal::TERM]);
 
     // create the core for the clients and HTTP Server
     let mut core = Core::new().unwrap();
@@ -85,6 +91,15 @@ fn main() {
 
     configure_http_server(&http_handle, server_info);
 
-    core.run(future::empty::<(), ()>()).unwrap();
-    handler.join().unwrap();
+//    core.run(future::empty::<(), ()>()).unwrap();
+    core.run(future::ok::<_,()>({
+        let ret = signal.recv().unwrap();
+        debug!("GOT SIGNAL");
+
+        ret
+    })).unwrap();
+
+//    debug!("Waiting on join");
+//    handler.join().unwrap();
+    debug!("After join");
 }
