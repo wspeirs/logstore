@@ -5,6 +5,7 @@ extern crate time;
 extern crate byteorder;
 
 use serde_json::{Value, Map};
+use serde_json::Number;
 use serde_json::Error as JsonError;
 use serde_json::error::ErrorCode;
 use twox_hash::XxHash;
@@ -22,10 +23,10 @@ fn make_json_error(msg: &str) -> JsonError {
     return JsonError::syntax(ErrorCode::Message(String::from(msg).into_boxed_str()), 0, 0);
 }
 
-fn get_ts() -> (i64) {
+fn get_ts() -> u64 {
     let ts = time::get_time();
 
-    return (ts.sec * 1000) + (ts.nsec as i64 / 1000000);
+    return (ts.sec as u64 * 1000) + (ts.nsec as u64 / 1000000);
 }
 
 pub fn map2json(log: HashMap<String, LogValue>) -> Value {
@@ -48,7 +49,16 @@ pub fn json2map(log: &str) -> Result<HashMap<String, LogValue>, Box<Error>> {
         return Err(Box::new(make_json_error("Messages must be JSON objects")));
     }
 
-    let mut json_map: Map<String, Value> = v.as_object().unwrap().to_owned();
+    let json_map = v.as_object().unwrap();
+
+    return value2map(&json_map, false);
+}
+
+pub fn value2logvalue(value_map: &Map<String, Value>) -> HashMap<String, LogValue> {
+    return value2map(value_map, true).unwrap();
+}
+
+fn value2map(json_map: &Map<String, Value>, skip_invalid: bool) -> Result<HashMap<String, LogValue>, Box<Error>> {
     let mut log_map = HashMap::<String, LogValue>::new();
 
     // construct our hash function
@@ -58,12 +68,9 @@ pub fn json2map(log: &str) -> Result<HashMap<String, LogValue>, Box<Error>> {
     let mut sorted_keys = json_map.keys().cloned().collect::<Vec<_>>();
 
     // check to see if there are any restricted fields
-    if sorted_keys.iter().any(|k| k.starts_with("__")) {
-        return Err(From::from("Illegal fields in message; fields cannot start with __: ".to_owned() + log));
+    if !skip_invalid && sorted_keys.iter().any(|k| k.starts_with("__")) {
+        return Err(From::from("Illegal fields in message; fields cannot start with __: "));
     }
-
-    // add the TS to the message
-    json_map.insert(String::from("__ts"), json!(get_ts()));
 
     // sort the keys so we get a canonical order
     sorted_keys.sort_unstable();
@@ -74,13 +81,21 @@ pub fn json2map(log: &str) -> Result<HashMap<String, LogValue>, Box<Error>> {
 
         // we don't support nested objects
         if let &Value::Object(_) = value {
-            return Err(Box::new(make_json_error("Nested JSON Objects are not allowed")));
+            if skip_invalid {
+                continue;
+            } else {
+                return Err(Box::new(make_json_error("Nested JSON Objects are not allowed")));
+            }
         }
 
         // convert to a LogValue or return an error if nested objects found
         let log_value = if let Value::Array(ref v) = *value {
             if v.iter().any(|i| i.is_object()) {
-                return Err(Box::new(make_json_error("JSON Objects in arrays not allowed")));
+                if skip_invalid {
+                    continue;
+                } else {
+                    return Err(Box::new(make_json_error("JSON Objects in arrays not allowed")));
+                }
             }
 
             let mut log_value_array = v.iter().map(|x| LogValue::from(x)).collect::<Vec<_>>();
@@ -99,6 +114,15 @@ pub fn json2map(log: &str) -> Result<HashMap<String, LogValue>, Box<Error>> {
         // add to the log_map
         log_map.insert(key.to_owned(), log_value);
     }
+
+    let ts = get_ts();
+
+    // add the TS to the message
+    log_map.insert(String::from("__ts"), LogValue::Number(Number::from(ts)));
+
+    // add the TS to our hash
+    hash.write("__ts".as_bytes());
+    hash.write_u64(ts);
 
     let mut buff = vec![];
 
