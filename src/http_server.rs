@@ -45,15 +45,15 @@ static VERSION_RESPONSE: &[u8] = br#"
 }"#;
 
 
-//fn parse_logs<T>(log_chunk: Chunk) -> FutureResult<T, hyper::Error> where T: Stream<Item=RequestMessage, Error=hyper::Error> {
-//fn parse_logs(log_chunk: Chunk) -> FutureResult<Box<Stream<Item=RequestMessage, Error=hyper::Error>>, hyper::Error> {
-fn parse_logs(log_chunk: Chunk) -> Box<Stream<Item=RequestMessage, Error=hyper::Error>> {
-    let req_stream = stream::iter_ok(
-        log_chunk.split(|c| *c == 10).map(|line| {
-            let v: Value = from_slice(line).unwrap();
+fn parse_logs(log_chunk: &Chunk) -> Box<Stream<Item=RequestMessage, Error=hyper::Error>> {
+    let log_lines = String::from_utf8(log_chunk.to_vec()).unwrap();
+
+    let req_stream =
+        log_lines.lines().into_iter().map(move |line| {
+            let v: Value = from_slice(line.as_bytes()).unwrap();
 
             if !v.is_object() {
-                warn!("Read non-object from _bulk POST: {}", from_utf8(line).unwrap());
+                warn!("Read non-object from _bulk POST: {}", line);
                 return None;
             }
 
@@ -71,12 +71,12 @@ fn parse_logs(log_chunk: Chunk) -> Box<Stream<Item=RequestMessage, Error=hyper::
             // create the RPC request message
             return Some(RequestMessage::Insert(log_value_map));
 
-        }).filter(|m| m.is_some()) // filter out the Nones
-        .map(|o| o.unwrap())); // convert from Some(r) -> r
+        });
 
-//    return future::ok::<T, hyper::Error>(req_stream);
-//    return future::ok(Box::new(req_stream));
-    return Box::new(req_stream);
+    Box::new(stream::iter_ok(req_stream.filter(move |m| m.is_some()) // filter out the Nones
+        .map(move |o| o.unwrap()))) // convert from Some(r) -> r
+
+//    return Box::new(req_stream);
 }
 
 impl Service for ElasticsearchService {
@@ -104,32 +104,26 @@ impl Service for ElasticsearchService {
             }
 
             (&Method::Post, _) => {
-                let request_stream = req
+                let future_log_stream = req
                     .body()
                     .concat2()
 //                    .and_then(parse_logs);
-                    .map(parse_logs);
+                    .map(|c| parse_logs(&c));
+
+                let response_stream =
+                    future_log_stream.map(move |req_stream| {
+                        req_stream.map(move |req| {
+                            stream::futures_unordered(
+                                clients.values().map(move |rpc_client| {
+                                    rpc_client.make_request(req.clone()).map_err(|e| hyper::error::Error::Io(e))
+                                })
+                            )
+                            }).flatten()
+                    }).flatten_stream();
 
                 let response =
-                    request_stream.map(|req_stream| {
-                        let x =
-                            req_stream.map(|req| {
-                                clients.values().map(move |rpc_client| {
-                                    rpc_client.make_request(req)
-                                }).map_err(|e| {
-                                    debug!("** ERROR ** {:?}", e);
-                                    Error::Io(e)
-                                }).map(|resp| {
-                                    debug!("RSP: {:?}", resp);
+                    response_stream.fold(Chunk::default(), move |c, r| future::ok::<Chunk, hyper::Error>(c));
 
-                                    match resp {
-                                        ResponseMessage::Ok => stream::iter_ok(vec![]),
-                                        ResponseMessage::Logs(l) => stream::iter_ok(l.into_iter().map(|m| Chunk::from(map2json(m).to_string())).collect::<Vec<_>>())
-                                    }
-                                })
-                            });
-                        x
-                    });
 
 //                Box::new(req.body().concat2().map(|b| {
 //                        for line in b.split(|c| *c == 10) {
@@ -173,12 +167,16 @@ impl Service for ElasticsearchService {
 //                                .flatten()
 //                            ;
 //
-                            let body: ResponseStream = Box::new(response);
+//                            let body: ResponseStream = Box::new(response);
 
-                            Box::new(futures::future::ok( Response::new()
-                                .with_status(StatusCode::Ok)
-                                .with_body(body)
-                            ))
+                            Box::new(response.map(|_| {
+                                Response::new().with_status(StatusCode::NoContent)
+                            }))
+
+//                            Box::new(futures::future::ok( Response::new()
+//                                .with_status(StatusCode::Ok)
+//                                .with_body(body)
+//                            ))
 //                        }
 //                        Response::new()
 //                        .with_status(StatusCode::UnprocessableEntity)
