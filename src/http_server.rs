@@ -45,11 +45,11 @@ static VERSION_RESPONSE: &[u8] = br#"
 }"#;
 
 
-fn parse_logs(log_chunk: &Chunk) -> Box<Stream<Item=RequestMessage, Error=hyper::Error>> {
-    let log_lines = String::from_utf8(log_chunk.to_vec()).unwrap();
+fn parse_logs(log_chunk: Chunk) -> Box<Stream<Item=RequestMessage, Error=hyper::Error>> {
+    let log_str = String::from_utf8(log_chunk.to_vec()).unwrap();
 
     let req_stream =
-        log_lines.lines().into_iter().map(move |line| {
+        log_str.lines().map(move |line| {
             let v: Value = from_slice(line.as_bytes()).unwrap();
 
             if !v.is_object() {
@@ -69,14 +69,11 @@ fn parse_logs(log_chunk: &Chunk) -> Box<Stream<Item=RequestMessage, Error=hyper:
             let log_value_map = value2logvalue(&json_map);
 
             // create the RPC request message
-            return Some(RequestMessage::Insert(log_value_map));
-
+            Some(RequestMessage::Insert(log_value_map))
         });
 
     Box::new(stream::iter_ok(req_stream.filter(move |m| m.is_some()) // filter out the Nones
         .map(move |o| o.unwrap()))) // convert from Some(r) -> r
-
-//    return Box::new(req_stream);
 }
 
 impl Service for ElasticsearchService {
@@ -107,8 +104,7 @@ impl Service for ElasticsearchService {
                 let future_log_stream = req
                     .body()
                     .concat2()
-//                    .and_then(parse_logs);
-                    .map(|c| parse_logs(&c));
+                    .map(parse_logs);
 
                 let response_stream =
                     future_log_stream.map(move |req_stream| {
@@ -125,84 +121,9 @@ impl Service for ElasticsearchService {
                     response_stream.fold(Chunk::default(), move |c, r| future::ok::<Chunk, hyper::Error>(c));
 
 
-//                Box::new(req.body().concat2().map(|b| {
-//                        for line in b.split(|c| *c == 10) {
-//                            let v: Value = from_slice(line).unwrap();
-//
-//                            if !v.is_object() {
-//                                warn!("Read non-object from _bulk POST: {}", from_utf8(line).unwrap());
-//                                continue;
-//                            }
-//
-//                            let json_map = v.as_object().unwrap();
-//
-//                            // we want to skip the meta info
-//                            // could use a counter for this as it's: meta, data, meta, etc...
-//                            if json_map.contains_key("index") {
-//                                continue;
-//                            }
-//
-//                            // convert the JSON Map to a LogValue HashMap
-//                            let log_value_map = value2logvalue(&json_map);
-//
-//                            // create the RPC request message
-//                            let req = RequestMessage::Insert(log_value_map);
-//
-//                            let response_futures =
-//                                clients.values().map(move |rpc_client| {
-//                                    rpc_client.make_request(req)
-//                                });
-//
-//                            // accumulate all the results together
-//                            let response = stream::futures_unordered(response_futures)
-//                                .map_err(|e| { debug!("** ERROR ** {:?}", e); Error::Io(e) })
-//                                .map(|resp| {
-//                                    debug!("RSP: {:?}", resp);
-//
-//                                    match resp {
-//                                        ResponseMessage::Ok => stream::iter_ok(vec![]),
-//                                        ResponseMessage::Logs(l) => stream::iter_ok(l.into_iter().map(|m| Chunk::from(map2json(m).to_string())).collect::<Vec<_>>())
-//                                    }
-//                                })
-//                                .flatten()
-//                            ;
-//
-//                            let body: ResponseStream = Box::new(response);
-
-                            Box::new(response.map(|_| {
-                                Response::new().with_status(StatusCode::NoContent)
-                            }))
-
-//                            Box::new(futures::future::ok( Response::new()
-//                                .with_status(StatusCode::Ok)
-//                                .with_body(body)
-//                            ))
-//                        }
-//                        Response::new()
-//                        .with_status(StatusCode::UnprocessableEntity)
-//                    })
-//                )
-
-
-//                if &path[..6] == "/_bulk" {
-//                    info!("GOT _bulk: {}", path);
-//                    Box::new(futures::future::ok(
-//                        Response::new()
-//                            .with_status(StatusCode::Ok)
-//                            .with_header(ContentLength(0))
-//                        ,
-//                    ))
-//                } else {
-//                    info!("Unknown POST: {}", path[..6].to_string());
-//                    let body: ResponseStream = Box::new(Body::from(NOTFOUND));
-//
-//                    Box::new(futures::future::ok(
-//                        Response::new()
-//                            .with_status(StatusCode::NotFound)
-//                            .with_header(ContentLength(NOTFOUND.len() as u64))
-//                            .with_body(body),
-//                    ))
-//                }
+                Box::new(response.map(|_| {
+                    Response::new().with_status(StatusCode::NoContent)
+                }))
             }
 
             (&Method::Get, "/") => {
