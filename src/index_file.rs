@@ -207,6 +207,9 @@ impl IndexFile  {
         }
 
         info!("Closed index: {}", self.index_name);
+
+        // close the underlying RecordFile
+        self.rec_file.close();
     }
 }
 

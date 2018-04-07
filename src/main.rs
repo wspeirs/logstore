@@ -55,7 +55,7 @@ use rpc_server::RPCClient;
 use data_manager::DataManager;
 
 fn main() {
-    simple_logger::init_with_level(Level::Info).unwrap(); // this will panic on error
+    simple_logger::init_with_level(Level::Debug).unwrap(); // this will panic on error
 
     // signal channel to handle Ctrl-C
     let signal = chan_signal::notify(&[Signal::INT, Signal::TERM]);

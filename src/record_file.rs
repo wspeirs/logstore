@@ -92,7 +92,7 @@ impl RecordFile {
 
             if record_count == BAD_COUNT {
                 //TODO: Add a check in here
-                panic!("Opened a bad record file");
+                panic!("Opened a bad record file; record_count == BAD_COUNT");
             }
 
             end_of_file = fd.read_u64::<LE>()?;

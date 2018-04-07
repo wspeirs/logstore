@@ -52,10 +52,10 @@ impl<Recv, Send> Decoder for LengthPrefixedMessage<Recv, Send> where for<'de> Re
             Err(_) => return Ok(None),
         };
 
-        debug!("DECODE: SIZE: {}\tBUF LEN: {}", msg_size, buf.len());
+        debug!("DECODE: SIZE: {} + 4\tBUF LEN: {}", msg_size, buf.len());
 
-        // Make sure our buffer has all the bytes indicated by msg_size.
-        if buf.len() < msg_size as usize {
+        // Make sure our buffer has all the bytes indicated by msg_size + 4 bytes for the size
+        if buf.len() < (msg_size + 4) as usize {
             debug!("INDICATING WE NEED MORE BYTES");
             return Ok(None);
         }

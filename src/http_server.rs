@@ -44,6 +44,32 @@ static VERSION_RESPONSE: &[u8] = br#"
   "tagline" : "You Know, for Search"
 }"#;
 
+static BULK_RESPONSE: &[u8] = br#"
+{
+   "took": 1,
+   "errors": false,
+   "items": [
+      {
+         "index": {
+            "_index": "test",
+            "_type": "_doc",
+            "_id": "1",
+            "_version": 1,
+            "result": "created",
+            "_shards": {
+               "total": 2,
+               "successful": 1,
+               "failed": 0
+            },
+            "status": 201,
+            "_seq_no" : 0,
+            "_primary_term": 1
+         }
+      }
+   ]
+}
+"#;
+
 
 fn parse_logs(log_chunk: Chunk) -> Box<Stream<Item=RequestMessage, Error=hyper::Error>> {
     let log_str = String::from_utf8(log_chunk.to_vec()).unwrap();
@@ -125,9 +151,13 @@ impl Service for ElasticsearchService {
                 let response =
                     response_stream.fold(Chunk::default(), move |c, r| future::ok::<Chunk, hyper::Error>(c));
 
+                let body: ResponseStream = Box::new(Body::from(BULK_RESPONSE));
 
                 Box::new(response.map(|_| {
-                    Response::new().with_status(StatusCode::NoContent)
+                    Response::new()
+                        .with_status(StatusCode::Ok)
+                        .with_header(ContentLength(BULK_RESPONSE.len() as u64))
+                        .with_body(body)
                 }))
             }
 
