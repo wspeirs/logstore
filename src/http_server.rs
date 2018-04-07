@@ -72,8 +72,13 @@ fn parse_logs(log_chunk: Chunk) -> Box<Stream<Item=RequestMessage, Error=hyper::
             Some(RequestMessage::Insert(log_value_map))
         });
 
-    Box::new(stream::iter_ok(req_stream.filter(move |m| m.is_some()) // filter out the Nones
-        .map(move |o| o.unwrap()))) // convert from Some(r) -> r
+    Box::new(
+        stream::iter_ok(
+            req_stream.filter(move |m| m.is_some()) // filter out the Nones
+                         .map(move |o| o.unwrap()) // convert from Some(r) -> r
+                         .collect::<Vec<_>>()
+        )
+    )
 }
 
 impl Service for ElasticsearchService {
